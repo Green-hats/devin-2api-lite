@@ -207,7 +207,7 @@ catalog:
 | 上游绑定 | protoc 生成 Connect 绑定 | 手写 wire + Connect |
 | 构建前置 | `task generate` | 无 |
 | 依赖 | 7 个 | 1 个（`yaml.v3`） |
-| 生产代码 | 8,851 行 | 7,414 行 |
+| 生产代码 | 8,851 行 | 7,432 行 |
 
 分层边界没有变化；要加回 Anthropic 或 WebSocket，只需补一个编解码包。
 

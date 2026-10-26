@@ -13,7 +13,7 @@ import os
 from PIL import Image, ImageDraw, ImageFont
 
 S = 2
-W, H = 1680, 1110
+W, H = 1680, 1280
 FONT_PATH = "/System/Library/Fonts/Hiragino Sans GB.ttc"
 
 INK = "#1F2937"
@@ -57,6 +57,17 @@ TEXTS = {
         ],
         "upstream_title": "Devin Connect",
         "upstream_sub": "server.codeium.com",
+        "catalog_title": "模型目录与快照",
+        "catalog_sub": "上游目录 → family metadata → 快照 → 对外投影",
+        "catalog_rpc": "GetCascadeModelConfigs",
+        "catalog_rpc_sub": "一元 · 账户模型目录",
+        "catalog_family": "family metadata",
+        "catalog_family_sub": "Reasoning Effort / Fast Mode",
+        "catalog_snapshot": "state/models.json",
+        "catalog_snapshot_sub": "原子写入 · 0600 · 失败回退",
+        "catalog_output": "/v1/models · /v1/model-manifest",
+        "catalog_output_sub": "基础模型 + 档位 / 原始目录",
+        "catalog_note": "上游失败 → 使用上次快照并标记 stale；openai 模式隐藏实际档位 id，但仍接受直接调用",
         "rpc_models": "GetCascadeModelConfigs",
         "rpc_models_sub": "一元 · 模型目录",
         "rpc_chat": "GetChatMessage",
@@ -104,10 +115,32 @@ TEXTS = {
         ],
         "upstream_title": "Devin Connect",
         "upstream_sub": "server.codeium.com",
+        "catalog_title": "模型目录与快照",
+        "catalog_sub": "上游目录 → family metadata → 快照 → 对外投影",
+        "catalog_rpc": "GetCascadeModelConfigs",
+        "catalog_rpc_sub": "一元 · 账户模型目录",
+        "catalog_family": "family metadata",
+        "catalog_family_sub": "Reasoning Effort / Fast Mode",
+        "catalog_snapshot": "state/models.json",
+        "catalog_snapshot_sub": "原子写入 · 0600 · 失败回退",
+        "catalog_output": "/v1/models · /v1/model-manifest",
+        "catalog_output_sub": "基础模型 + 档位 / 原始目录",
+        "catalog_note": "上游失败 → 使用上次快照并标记 stale；openai 模式隐藏实际档位 id，但仍接受直接调用",
         "rpc_models": "GetCascadeModelConfigs",
         "rpc_models_sub": "unary · model catalog",
         "rpc_chat": "GetChatMessage",
         "rpc_chat_sub": "server stream · chat / tools",
+        "catalog_title": "Model catalog & snapshot",
+        "catalog_sub": "upstream catalog → family metadata → snapshot → client projection",
+        "catalog_rpc": "GetCascadeModelConfigs",
+        "catalog_rpc_sub": "unary · account model catalog",
+        "catalog_family": "family metadata",
+        "catalog_family_sub": "Reasoning Effort / Fast Mode",
+        "catalog_snapshot": "state/models.json",
+        "catalog_snapshot_sub": "atomic · 0600 · stale fallback",
+        "catalog_output": "/v1/models · /v1/model-manifest",
+        "catalog_output_sub": "base models + efforts / raw catalog",
+        "catalog_note": "on upstream failure the last snapshot is served and marked stale; openai mode hides tier ids but still accepts them",
         "auth": "Auth · Basic <token>-<token>",
         "identity": "identity · chisel / 3000.2.17",
         "ids": "new Trajectory / Cascade / Execution ID per request",
@@ -277,11 +310,33 @@ def render(lang, filename):
     txt(1130, 844, t["arrow_resp"][0], 11, fill=FAINT)
     txt(1130, 858, t["arrow_resp"][1], 11, fill=FAINT)
 
+    # ---------- 模型目录 ----------
+    rect(50, 955, 1590, 170, "#FFFFFF", "#DFE3EA", radius=14, width=1.2)
+    txt(70, 968, t["catalog_title"], 15, bold=True)
+    txt(70, 990, t["catalog_sub"], 11, fill=FAINT)
+
+    catalog_boxes = [
+        (70, 300, t["catalog_rpc"], t["catalog_rpc_sub"], "#FBFCFE", "#D5E1F1"),
+        (410, 320, t["catalog_family"], t["catalog_family_sub"], "#FBFCFE", "#D5E1F1"),
+        (770, 300, t["catalog_snapshot"], t["catalog_snapshot_sub"], "#FBFCFE", "#D5E1F1"),
+        (1110, 480, t["catalog_output"], t["catalog_output_sub"], "#F4F8FF", "#C9DBF5"),
+    ]
+    for x, width, title, sub, fill, outline in catalog_boxes:
+        rect(x, 1010, width, 62, fill, outline, radius=9, width=1)
+        txt(x + 14, 1019, title, 12.5, bold=True)
+        txt(x + 14, 1041, sub, 10.5, fill=FAINT)
+
+    arrow((370, 1041), (406, 1041), "#8FA9C9", width=1.8, size=7)
+    arrow((730, 1041), (766, 1041), "#8FA9C9", width=1.8, size=7)
+    arrow((1070, 1041), (1106, 1041), "#8FA9C9", width=1.8, size=7)
+
+    txt(70, 1084, t["catalog_note"], 11, fill=FAINT)
+
     # ---------- 底部 ----------
-    rect(50, 975, 1590, 95, "#EEF2F7", "#DCE3ED", radius=14, width=1.2)
-    txt(70, 992, t["bottom_modules"], 14.5, fill=MUTED)
-    txt(70, 1024, t["bottom_quality"], 12.5, fill=FAINT)
-    txt(1620, 1004, t["bottom_license"], 12.5, fill=FAINT, anchor="ra")
+    rect(50, 1145, 1590, 95, "#EEF2F7", "#DCE3ED", radius=14, width=1.2)
+    txt(70, 1162, t["bottom_modules"], 14.5, fill=MUTED)
+    txt(70, 1194, t["bottom_quality"], 12.5, fill=FAINT)
+    txt(1620, 1174, t["bottom_license"], 12.5, fill=FAINT, anchor="ra")
 
     out = os.path.join(os.path.dirname(os.path.abspath(__file__)), filename)
     IMG.resize((W, H), Image.LANCZOS).save(out)
