@@ -44,6 +44,8 @@ type Config struct {
 	Proxy string
 	// ForceHTTP1 为 true 时强制 HTTP/1.1，每请求独立连接，避免 HTTP/2 单连接多 stream 并发瓶颈。
 	ForceHTTP1 bool
+	// IdleTimeout 是上游流两次帧之间的最长等待时间；0 表示不限制。
+	IdleTimeout time.Duration
 }
 
 // Adapter 调用 Devin 的 ApiServerService/GetChatMessage。
@@ -55,6 +57,9 @@ type Adapter struct {
 	models         []adapter.ModelInfo
 	modelsExpiry   time.Time
 	modelsCacheTTL time.Duration
+	// imagesMu 保护从模型目录学到的图片能力，避免与硬编码名单互相矛盾。
+	imagesMu     sync.RWMutex
+	imageSupport map[string]bool
 }
 
 var _ adapter.Adapter = (*Adapter)(nil)
@@ -88,6 +93,7 @@ func New(config Config) (*Adapter, error) {
 		streamClient:   streamClient,
 		unaryClient:    unaryClient,
 		modelsCacheTTL: 5 * time.Minute,
+		imageSupport:   make(map[string]bool),
 	}, nil
 }
 
@@ -100,7 +106,7 @@ func (adapter *Adapter) Stream(ctx context.Context, request llm.RequestMessages)
 	if model == "" {
 		model = adapter.config.Model
 	}
-	if err := validateImagesForModel(request, model); err != nil {
+	if err := adapter.validateImagesForModel(request, model); err != nil {
 		return nil, err
 	}
 	cfg := adapter.config
@@ -117,18 +123,42 @@ func (adapter *Adapter) Stream(ctx context.Context, request llm.RequestMessages)
 		// 透传上游 Connect 错误原文，不包一层模糊前缀。
 		return nil, err
 	}
-	return &responseStream{upstream: upstream, decoder: newResponseDecoder(model), recorder: recorder}, nil
+	return &responseStream{
+		upstream:    upstream,
+		decoder:     newResponseDecoder(model),
+		recorder:    recorder,
+		idleTimeout: adapter.config.IdleTimeout,
+	}, nil
 }
 
-// validateImagesForModel 在本地尽早拒绝「无视觉能力模型 + 图片」组合，错误信息对客户端可读。
-func validateImagesForModel(request llm.RequestMessages, model string) error {
+// validateImagesForModel 在本地尽早拒绝「无视觉能力模型 + 图片」组合。
+// 优先使用模型目录学到的 supports_images，未知时回退到内置名单。
+func (adapter *Adapter) validateImagesForModel(request llm.RequestMessages, model string) error {
 	if !requestHasImages(request) {
 		return nil
 	}
+	if supported, known := adapter.cachedImageSupport(model); known {
+		if supported {
+			return nil
+		}
+		return imageUnsupportedError(model)
+	}
 	if !modelLikelySupportsImages(model) {
-		return fmt.Errorf("model %q does not support image inputs (supports_images=false); use a vision-capable model or remove images", model)
+		return imageUnsupportedError(model)
 	}
 	return nil
+}
+
+func imageUnsupportedError(model string) error {
+	return fmt.Errorf("model %q does not support image inputs (supports_images=false); use a vision-capable model or remove images", model)
+}
+
+// cachedImageSupport 返回模型目录中记录的图片能力。
+func (adapter *Adapter) cachedImageSupport(model string) (bool, bool) {
+	adapter.imagesMu.RLock()
+	defer adapter.imagesMu.RUnlock()
+	supported, ok := adapter.imageSupport[model]
+	return supported, ok
 }
 
 func requestHasImages(request llm.RequestMessages) bool {
@@ -177,7 +207,7 @@ func modelLikelySupportsImages(model string) bool {
 func (a *Adapter) ListModels(ctx context.Context) ([]adapter.ModelInfo, error) {
 	a.modelsMu.RLock()
 	if a.models != nil && time.Now().Before(a.modelsExpiry) {
-		cached := a.models
+		cached := cloneModelInfo(a.models)
 		a.modelsMu.RUnlock()
 		return cached, nil
 	}
@@ -195,7 +225,7 @@ func (a *Adapter) ListModels(ctx context.Context) ([]adapter.ModelInfo, error) {
 		},
 	}).encode())
 	if err != nil {
-		return nil, fmt.Errorf("Devin GetCascadeModelConfigs: %w", err)
+		return nil, fmt.Errorf("call GetCascadeModelConfigs: %w", err)
 	}
 	response, err := decodeModelConfigs(payload)
 	if err != nil {
@@ -223,21 +253,39 @@ func (a *Adapter) ListModels(ctx context.Context) ([]adapter.ModelInfo, error) {
 		if _, ok := seen[configured]; !ok {
 			models = append(models, adapter.ModelInfo{
 				ID: configured, Created: now, OwnedBy: "devin",
-				// 配置模型无法从 Devin 获取图片能力，默认按支持图片处理更友好。
-				SupportsImages: true,
+				// 与 Stream 的本地校验使用同一判断，避免 /v1/models 与真实行为矛盾。
+				SupportsImages: modelLikelySupportsImages(configured),
 			})
 		}
 	}
+
+	a.recordImageSupport(models)
 
 	a.modelsMu.Lock()
 	defer a.modelsMu.Unlock()
 	// 请求期间可能有其他请求已写入缓存，避免覆盖更热的数据。
 	if a.models != nil && time.Now().Before(a.modelsExpiry) {
-		return a.models, nil
+		return cloneModelInfo(a.models), nil
 	}
 	a.models = models
 	a.modelsExpiry = time.Now().Add(a.modelsCacheTTL)
-	return models, nil
+	return cloneModelInfo(models), nil
+}
+
+// recordImageSupport 把模型目录中的图片能力写入本地缓存。
+func (a *Adapter) recordImageSupport(models []adapter.ModelInfo) {
+	a.imagesMu.Lock()
+	defer a.imagesMu.Unlock()
+	for _, model := range models {
+		a.imageSupport[model.ID] = model.SupportsImages
+	}
+}
+
+// cloneModelInfo 返回缓存切片副本，避免调用方修改内部状态。
+func cloneModelInfo(models []adapter.ModelInfo) []adapter.ModelInfo {
+	cloned := make([]adapter.ModelInfo, len(models))
+	copy(cloned, models)
+	return cloned
 }
 
 // providerName 把 ModelProvider 枚举值映射为展示用归属方。
@@ -447,6 +495,8 @@ type frameStream interface {
 	Receive() ([]byte, bool)
 	// Err 返回流结束时的错误；正常结束返回 nil。
 	Err() error
+	// Close 释放底层连接；可重复调用。
+	Close() error
 }
 
 // responseStream 从 Connect 上游按需读取帧并依次返回 decoder 生成的事件。
@@ -457,6 +507,14 @@ type responseStream struct {
 	decoder *responseDecoder
 	// recorder 记录 Devin 原始响应帧；nil 表示禁用调试日志。
 	recorder *debuglog.Recorder
+	// idleTimeout 是两次帧之间的最长等待时间；0 表示不限制。
+	idleTimeout time.Duration
+	// readErr 记录空闲超时等本地读取错误，优先于上游错误。
+	readErr error
+	// closeOnce 保证底层流只关闭一次。
+	closeOnce sync.Once
+	// closeErr 是首次关闭上游时的错误。
+	closeErr error
 	// started 表示是否已经请求 decoder 产生 start 事件。
 	started bool
 	// finished 表示 decoder 已经生成最终事件，不再读取上游。
@@ -475,9 +533,16 @@ func (stream *responseStream) Recv(ctx context.Context) (llm.ResponseEvent, erro
 			stream.queue = append(stream.queue, stream.decoder.start()...)
 			break
 		}
-		payload, ok := stream.upstream.Receive()
+		payload, ok := stream.receive(ctx)
 		if !ok {
-			stream.queue = append(stream.queue, stream.decoder.finish(stream.upstream.Err())...)
+			if err := ctx.Err(); err != nil {
+				return llm.ResponseEvent{}, err
+			}
+			readErr := stream.readErr
+			if readErr == nil {
+				readErr = stream.upstream.Err()
+			}
+			stream.queue = append(stream.queue, stream.decoder.finish(readErr)...)
 			stream.finished = true
 			break
 		}
@@ -497,6 +562,68 @@ func (stream *responseStream) Recv(ctx context.Context) (llm.ResponseEvent, erro
 		return event, nil
 	}
 	return llm.ResponseEvent{}, io.EOF
+}
+
+// receive 在 idleTimeout 内等待下一帧；超时会关闭上游并返回 false。
+func (stream *responseStream) receive(ctx context.Context) ([]byte, bool) {
+	if stream.idleTimeout <= 0 {
+		return stream.upstream.Receive()
+	}
+	type frameResult struct {
+		payload []byte
+		ok      bool
+	}
+	results := make(chan frameResult, 1)
+	go func() {
+		payload, ok := stream.upstream.Receive()
+		results <- frameResult{payload: payload, ok: ok}
+	}()
+	timer := time.NewTimer(stream.idleTimeout)
+	defer timer.Stop()
+	select {
+	case result := <-results:
+		return result.payload, result.ok
+	case <-ctx.Done():
+		_ = stream.Close()
+		<-results
+		return nil, false
+	case <-timer.C:
+		stream.readErr = fmt.Errorf("%w after %s", adapter.ErrStreamIdle, stream.idleTimeout)
+		_ = stream.Close()
+		<-results
+		return nil, false
+	}
+}
+
+// Close 关闭上游流；可重复调用。
+func (stream *responseStream) Close() error {
+	if stream == nil {
+		return nil
+	}
+	stream.closeOnce.Do(func() {
+		if stream.upstream != nil {
+			stream.closeErr = stream.upstream.Close()
+		}
+	})
+	return stream.closeErr
+}
+
+// errorCode 把上游/本地错误归一为稳定错误码，供 HTTP 层映射。
+func errorCode(err error) string {
+	var coded adapter.CodedError
+	if errors.As(err, &coded) {
+		return coded.ErrorCode()
+	}
+	switch {
+	case errors.Is(err, adapter.ErrStreamIdle):
+		return "deadline_exceeded"
+	case errors.Is(err, context.DeadlineExceeded):
+		return "deadline_exceeded"
+	case errors.Is(err, adapter.ErrUnavailable):
+		return "unavailable"
+	default:
+		return ""
+	}
 }
 
 // recordRequest 把即将发往上游的请求投影为调试 JSON。

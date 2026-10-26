@@ -7,4 +7,6 @@ import "context"
 type ResponseStream interface {
 	// Recv 返回下一个响应事件；流结束时返回 io.EOF。
 	Recv(context.Context) (ResponseEvent, error)
+	// Close 释放上游连接；可重复调用。
+	Close() error
 }

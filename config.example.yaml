@@ -16,7 +16,15 @@ devin:
   proxy: ""
   # 强制 HTTP/1.1：每请求独立 TCP 连接，避免 HTTP/2 多 stream 复用被上游串行处理。
   force_http1: true
+  # 上游流两次帧之间的最长等待时间；超时返回 504。0 表示不限制。
+  stream_idle_timeout: "5m"
 
 auth:
   # /v1/* 的访问密钥；留空则不校验。客户端可用 Authorization: Bearer 或 X-Api-Key。
   api_key: ""
+
+# 环境变量优先级高于本文件，适合容器 / systemd：
+#   SERVER_LISTEN, SERVER_MAX_CONCURRENCY
+#   DEVIN_BASE_URL, DEVIN_TOKEN, DEVIN_MODEL, DEVIN_PROXY,
+#   DEVIN_FORCE_HTTP1, DEVIN_STREAM_IDLE_TIMEOUT
+#   DEBUG_ENABLED, AUTH_API_KEY

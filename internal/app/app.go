@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -45,6 +46,8 @@ type App struct {
 	debugManager *debuglog.Manager
 	// apiKey 是可选的 OpenAI 兼容接口访问密钥；为空则不校验。
 	apiKey string
+	// logger 是请求级结构化日志；默认丢弃，由 main 注入。
+	logger *slog.Logger
 	// concurrency 限制同时处理的 /v1/* 请求数。
 	concurrency chan struct{}
 }
@@ -59,6 +62,7 @@ func New(providerAdapter adapter.Adapter, serverConfig config.ServerConfig, debu
 		adapter:      providerAdapter,
 		serverConfig: serverConfig,
 		debugManager: debugManager,
+		logger:       slog.New(slog.NewTextHandler(io.Discard, nil)),
 		concurrency:  make(chan struct{}, limit),
 	}
 }
@@ -73,7 +77,7 @@ func (application *App) Router() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", application.health)
 	protected := func(pattern string, handler http.HandlerFunc) {
-		mux.Handle(pattern, application.concurrencyMiddleware(application.apiKeyMiddleware(handler)))
+		mux.Handle(pattern, application.observe(application.concurrencyMiddleware(application.apiKeyMiddleware(handler))))
 	}
 	protected("GET /v1/models", application.listModels)
 	protected("GET /v1/models/{model}", application.getModel)
@@ -108,7 +112,9 @@ func (application *App) listModels(writer http.ResponseWriter, request *http.Req
 	}
 	models, err := application.adapter.ListModels(request.Context())
 	if err != nil {
-		writeJSONError(writer, mapProviderErrorStatus(err), err.Error())
+		status := mapProviderErrorStatus(err)
+		application.logFailure(request.Context(), "provider_models", status, err)
+		writeJSONError(writer, status, err.Error())
 		return
 	}
 	data := make([]map[string]any, 0, len(models))
@@ -145,7 +151,9 @@ func (application *App) getModel(writer http.ResponseWriter, request *http.Reque
 	}
 	models, err := application.adapter.ListModels(request.Context())
 	if err != nil {
-		writeJSONError(writer, mapProviderErrorStatus(err), err.Error())
+		status := mapProviderErrorStatus(err)
+		application.logFailure(request.Context(), "provider_models", status, err)
+		writeJSONError(writer, status, err.Error())
 		return
 	}
 	for _, m := range models {
@@ -166,14 +174,20 @@ func (application *App) getModel(writer http.ResponseWriter, request *http.Reque
 			return
 		}
 	}
-	writeJSONError(writer, http.StatusNotFound, fmt.Sprintf("model %q not found", id))
+	err = fmt.Errorf("model %q not found", id)
+	application.logFailure(request.Context(), "model_lookup", http.StatusNotFound, err)
+	writeJSONError(writer, http.StatusNotFound, err.Error())
 }
 
 func writeJSONError(writer http.ResponseWriter, status int, message string) {
+	errorType := "invalid_request_error"
+	if status >= http.StatusInternalServerError {
+		errorType = "server_error"
+	}
 	writer.Header().Set("Content-Type", "application/json")
 	writer.WriteHeader(status)
 	_ = json.NewEncoder(writer).Encode(map[string]any{
-		"error": map[string]any{"message": message, "type": "invalid_request_error", "code": nil, "param": nil},
+		"error": map[string]any{"message": message, "type": errorType, "code": nil, "param": nil},
 	})
 }
 
@@ -193,6 +207,7 @@ func (application *App) concurrencyMiddleware(next http.Handler) http.Handler {
 			defer func() { <-application.concurrency }()
 			next.ServeHTTP(writer, request)
 		default:
+			application.logFailure(request.Context(), "concurrency", http.StatusServiceUnavailable, errors.New("server is busy"))
 			writeJSONError(writer, http.StatusServiceUnavailable, "server is busy, please try again later")
 		}
 	})
@@ -220,6 +235,7 @@ func (application *App) apiKeyMiddleware(next http.Handler) http.Handler {
 			}
 		}
 		if provided == "" {
+			application.logFailure(request.Context(), "auth", http.StatusUnauthorized, errors.New("missing API key"))
 			writeAuthError(writer, "Missing API key")
 			return
 		}
@@ -227,6 +243,7 @@ func (application *App) apiKeyMiddleware(next http.Handler) http.Handler {
 		expectedHash := sha256.Sum256([]byte(application.apiKey))
 		providedHash := sha256.Sum256([]byte(provided))
 		if subtle.ConstantTimeCompare(expectedHash[:], providedHash[:]) != 1 {
+			application.logFailure(request.Context(), "auth", http.StatusUnauthorized, errors.New("invalid API key"))
 			writeAuthError(writer, "Invalid API key")
 			return
 		}
@@ -254,45 +271,47 @@ func (application *App) createCompletion(
 
 	if application.adapter == nil {
 		completion.StatusCode = http.StatusServiceUnavailable
-		writeLoggedError(writer, recorder, "provider_configuration", completion.StatusCode, errors.New("provider adapter is not configured"))
+		application.writeLoggedError(writer, request.Context(), recorder, "provider_configuration", completion.StatusCode, errors.New("provider adapter is not configured"))
 		return
 	}
 	// 图片 base64 会显著放大 JSON；与常见 IDE 多图请求对齐到 32MiB。
 	body, err := io.ReadAll(http.MaxBytesReader(writer, request.Body, 32<<20))
 	if err != nil {
-		completion.StatusCode = http.StatusBadRequest
-		writeLoggedError(writer, recorder, "http_read", completion.StatusCode, fmt.Errorf("read request: %w", err))
+		completion.StatusCode = http.StatusRequestEntityTooLarge
+		var maxBytesError *http.MaxBytesError
+		if !errors.As(err, &maxBytesError) {
+			completion.StatusCode = http.StatusBadRequest
+		}
+		application.writeLoggedError(writer, request.Context(), recorder, "http_read", completion.StatusCode, fmt.Errorf("read request: %w", err))
 		return
 	}
 	recorder.WriteJSON("01-http-request.json", httpRequestProjection(request, body))
 	messages, options, err := decoder(body)
 	if err != nil {
 		completion.StatusCode = http.StatusBadRequest
-		writeLoggedError(writer, recorder, "http_decode", completion.StatusCode, err)
+		application.writeLoggedError(writer, request.Context(), recorder, "http_decode", completion.StatusCode, err)
 		return
 	}
 	completion.Model = messages.Model
 	completion.Stream = options.Stream
+	application.annotateRequest(request.Context(), messages.Model, options.Stream)
 	recorder.WriteJSON("02-request-messages.json", messages)
 	ctx := debuglog.WithRecorder(request.Context(), recorder)
 	stream, err := application.adapter.Stream(ctx, messages)
 	if err != nil {
 		completion.StatusCode = mapProviderErrorStatus(err)
-		writeLoggedError(writer, recorder, "provider_stream", completion.StatusCode, err)
+		application.writeLoggedError(writer, request.Context(), recorder, "provider_stream", completion.StatusCode, err)
 		return
 	}
+	defer func() { _ = stream.Close() }()
 	if options.Stream {
 		firstEvent, err := receiveEvent(ctx, stream, recorder)
 		if err == nil && firstEvent.Type == llm.ResponseEventError {
-			if firstEvent.Error != nil && firstEvent.Error.ErrorMessage != "" {
-				err = errors.New(firstEvent.Error.ErrorMessage)
-			} else {
-				err = errors.New("response stream returned an error event immediately")
-			}
+			err = newProviderMessageError(firstEvent.Error, "response stream returned an error event immediately")
 		}
 		if err != nil && !errors.Is(err, io.EOF) {
 			completion.StatusCode = mapProviderErrorStatus(err)
-			writeLoggedError(writer, recorder, "provider_stream", completion.StatusCode, err)
+			application.writeLoggedError(writer, request.Context(), recorder, "provider_stream", completion.StatusCode, err)
 			return
 		}
 
@@ -314,14 +333,14 @@ func (application *App) createCompletion(
 	message, err := collectFinalMessage(ctx, stream, recorder)
 	if err != nil {
 		completion.StatusCode = mapProviderErrorStatus(err)
-		writeLoggedError(writer, recorder, "response_event", completion.StatusCode, err)
+		application.writeLoggedError(writer, request.Context(), recorder, "response_event", completion.StatusCode, err)
 		return
 	}
 	updateCompletionIdentity(&completion, message)
 	body, err = protocol.EncodeFinal(message)
 	if err != nil {
 		completion.StatusCode = http.StatusInternalServerError
-		writeLoggedError(writer, recorder, "http_encode", completion.StatusCode, err)
+		application.writeLoggedError(writer, request.Context(), recorder, "http_encode", completion.StatusCode, err)
 		return
 	}
 	writer.Header().Set("Content-Type", "application/json")
@@ -353,6 +372,8 @@ func writeProtocolStream(
 	writer.Header().Set("Content-Type", "text/event-stream")
 	writer.Header().Set("Cache-Control", "no-cache")
 	writer.Header().Set("Connection", "keep-alive")
+	// 避免 nginx 等反代缓冲 SSE；本地直连无影响。
+	writer.Header().Set("X-Accel-Buffering", "no")
 	encoder := protocol.NewStreamEncoder(model, options.IncludeUsage)
 	var latest *llm.AssistantMessage
 	event, err := firstEvent, firstErr
@@ -381,10 +402,7 @@ func writeProtocolStream(
 		}
 		if event.Type == llm.ResponseEventError {
 			// 错误 SSE 已在上面循环写出，这里直接返回错误供外层记录失败日志。
-			if event.Error != nil && event.Error.ErrorMessage != "" {
-				return latest, errors.New(event.Error.ErrorMessage)
-			}
-			return latest, errors.New("response stream returned an error event")
+			return latest, newProviderMessageError(event.Error, "response stream returned an error event")
 		}
 		event, err = receiveEvent(ctx, stream, recorder)
 	}
@@ -413,7 +431,7 @@ func collectFinalMessage(ctx context.Context, stream llm.ResponseStream, recorde
 			if event.Error == nil {
 				return nil, errors.New("error event has no error message")
 			}
-			return nil, errors.New(event.Error.ErrorMessage)
+			return nil, newProviderMessageError(event.Error, "response stream returned an error")
 		}
 	}
 }
@@ -468,8 +486,9 @@ func httpRequestProjection(request *http.Request, body []byte) map[string]any {
 	}
 }
 
-func writeLoggedError(writer http.ResponseWriter, recorder *debuglog.Recorder, stage string, status int, err error) {
+func (application *App) writeLoggedError(writer http.ResponseWriter, ctx context.Context, recorder *debuglog.Recorder, stage string, status int, err error) {
 	recorder.WriteError(stage, err)
+	application.logFailure(ctx, stage, status, err)
 	message := err.Error()
 	errorType := common.OpenAIErrorType(message)
 	// 客户端可修正的错误用 invalid_request_error，便于 IDE 直接展示。
@@ -496,9 +515,35 @@ func writeLoggedError(writer http.ResponseWriter, recorder *debuglog.Recorder, s
 }
 
 // mapProviderErrorStatus 将上游/适配器错误映射为合适的 HTTP 状态，message 仍原样透传。
+// 优先使用 typed error code；字符串匹配只作为旧上游文案的兜底。
 func mapProviderErrorStatus(err error) int {
 	if err == nil {
 		return http.StatusBadGateway
+	}
+	if errors.Is(err, adapter.ErrUnavailable) {
+		return http.StatusServiceUnavailable
+	}
+	if errors.Is(err, adapter.ErrStreamIdle) {
+		return http.StatusGatewayTimeout
+	}
+	var coded adapter.CodedError
+	if errors.As(err, &coded) {
+		switch strings.ToLower(coded.ErrorCode()) {
+		case "invalid_argument":
+			return http.StatusBadRequest
+		case "unauthenticated":
+			return http.StatusUnauthorized
+		case "permission_denied":
+			return http.StatusForbidden
+		case "not_found":
+			return http.StatusNotFound
+		case "resource_exhausted":
+			return http.StatusTooManyRequests
+		case "deadline_exceeded":
+			return http.StatusGatewayTimeout
+		case "unavailable":
+			return http.StatusServiceUnavailable
+		}
 	}
 	msg := err.Error()
 	switch {
@@ -525,4 +570,28 @@ func mapProviderErrorStatus(err error) int {
 	default:
 		return http.StatusBadGateway
 	}
+}
+
+// providerMessageError 把 AssistantMessage 的稳定错误码带到 HTTP 层。
+type providerMessageError struct {
+	code    string
+	message string
+}
+
+// Error 返回可读错误信息。
+func (e *providerMessageError) Error() string { return e.message }
+
+// ErrorCode 实现 adapter.CodedError。
+func (e *providerMessageError) ErrorCode() string { return e.code }
+
+// newProviderMessageError 从中间消息构造带错误码的 error。
+func newProviderMessageError(message *llm.AssistantMessage, fallback string) error {
+	if message == nil {
+		return errors.New(fallback)
+	}
+	text := message.ErrorMessage
+	if text == "" {
+		text = fallback
+	}
+	return &providerMessageError{code: message.ErrorCode, message: text}
 }

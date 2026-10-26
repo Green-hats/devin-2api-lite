@@ -43,6 +43,8 @@ type AssistantMessage struct {
 	StopReason StopReason
 	// ErrorMessage 是生成失败或中止时的可读错误信息。
 	ErrorMessage string
+	// ErrorCode 是失败时的稳定错误码，例如 deadline_exceeded；供 HTTP 层映射状态码。
+	ErrorCode string
 	// TimestampMS 是创建消息时的 Unix 毫秒时间戳。
 	TimestampMS int64
 }

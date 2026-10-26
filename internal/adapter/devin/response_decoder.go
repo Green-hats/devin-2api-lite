@@ -109,14 +109,14 @@ func (decoder *responseDecoder) finish(upstreamErr error) []llm.ResponseEvent {
 		return decoder.fail(upstreamErr)
 	}
 	if !decoder.hasStopReason && len(decoder.partial.Content) == 0 && len(decoder.tools) == 0 {
-		return decoder.fail(errors.New("Devin stream ended without generated content"))
+		return decoder.fail(errors.New("stream ended without generated content"))
 	}
 	reason := decoder.stopReason
 	if !decoder.hasStopReason {
 		reason = llm.StopReasonStop
 	}
 	if reason == llm.StopReasonError {
-		return decoder.fail(errors.New("Devin stopped with an error"))
+		return decoder.fail(errors.New("stream stopped with an error"))
 	}
 	return decoder.complete(reason)
 }
@@ -314,6 +314,7 @@ func (decoder *responseDecoder) fail(err error) []llm.ResponseEvent {
 	}
 	decoder.partial.StopReason = llm.StopReasonError
 	decoder.partial.ErrorMessage = err.Error()
+	decoder.partial.ErrorCode = errorCode(err)
 	decoder.finished = true
 	return []llm.ResponseEvent{{Type: llm.ResponseEventError, Reason: llm.StopReasonError, Error: &decoder.partial}}
 }

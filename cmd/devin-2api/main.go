@@ -7,16 +7,16 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
-	"github.com/Green-hats/devin-2api-lite/internal/adapter"
-	"github.com/Green-hats/devin-2api-lite/internal/adapter/devin"
 	"github.com/Green-hats/devin-2api-lite/internal/app"
 	"github.com/Green-hats/devin-2api-lite/internal/config"
 	"github.com/Green-hats/devin-2api-lite/internal/debuglog"
@@ -24,7 +24,14 @@ import (
 
 func main() {
 	configPath := flag.String("config", "config.yaml", "YAML 配置文件路径")
+	check := flag.Bool("check", false, "校验配置与上游连通性后退出")
+	showVersion := flag.Bool("version", false, "打印版本后退出")
 	flag.Parse()
+
+	if *showVersion {
+		fmt.Println("devin-2api lite " + versionString())
+		return
+	}
 
 	absoluteConfigPath, err := filepath.Abs(*configPath)
 	if err != nil {
@@ -34,29 +41,31 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	if strings.HasPrefix(strings.ToLower(serviceConfig.Devin.BaseURL), "http://") {
+		log.Printf("warning: devin.base_url uses http; the session token will be sent unencrypted")
+	}
 
-	providerAdapter := adapter.Adapter(adapter.Unavailable{Reason: "provider adapter is not configured"})
-	if serviceConfig.Devin.Token != "" {
-		configured, createErr := devin.New(devin.Config{
-			BaseURL:    serviceConfig.Devin.BaseURL,
-			Token:      serviceConfig.Devin.Token,
-			Model:      serviceConfig.Devin.Model,
-			Proxy:      serviceConfig.Devin.Proxy,
-			ForceHTTP1: serviceConfig.Devin.ForceHTTP1 != nil && *serviceConfig.Devin.ForceHTTP1,
-		})
-		if createErr != nil {
-			log.Fatal(createErr)
+	if *check {
+		if err := runCheck(&serviceConfig, absoluteConfigPath, os.Stdout); err != nil {
+			log.Fatal(err)
 		}
-		providerAdapter = configured
+		return
+	}
+
+	providerAdapter, err := newProviderAdapter(serviceConfig)
+	if err != nil {
+		log.Fatal(err)
 	}
 	var debugManager *debuglog.Manager
 	if serviceConfig.Debug.Enabled {
 		debugManager = debuglog.NewManager(filepath.Join(filepath.Dir(absoluteConfigPath), "logs"))
 	}
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	application := app.New(providerAdapter, serviceConfig.Server, debugManager)
 	application.SetAPIKey(serviceConfig.Auth.APIKey)
+	application.SetLogger(logger)
 	server := application.HTTPServer()
-	log.Printf("HTTP server listening on %s", listenURL(server.Addr))
+	logger.Info("HTTP server listening", "addr", listenURL(server.Addr))
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

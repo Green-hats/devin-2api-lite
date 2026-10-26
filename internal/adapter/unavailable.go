@@ -3,7 +3,7 @@ package adapter
 
 import (
 	"context"
-	"errors"
+	"fmt"
 
 	"github.com/Green-hats/devin-2api-lite/internal/llm"
 )
@@ -14,18 +14,20 @@ type Unavailable struct {
 	Reason string
 }
 
+// err 返回可被 errors.Is(adapter.ErrUnavailable) 识别的错误。
+func (unavailable Unavailable) err() error {
+	if unavailable.Reason == "" {
+		return ErrUnavailable
+	}
+	return fmt.Errorf("%w: %s", ErrUnavailable, unavailable.Reason)
+}
+
 // Stream 返回未配置供应商适配器的错误。
 func (unavailable Unavailable) Stream(context.Context, llm.RequestMessages) (llm.ResponseStream, error) {
-	if unavailable.Reason == "" {
-		return nil, errors.New("provider adapter is not implemented")
-	}
-	return nil, errors.New(unavailable.Reason)
+	return nil, unavailable.err()
 }
 
 // ListModels 返回未配置供应商适配器的错误。
 func (unavailable Unavailable) ListModels(context.Context) ([]ModelInfo, error) {
-	if unavailable.Reason == "" {
-		return nil, errors.New("provider adapter is not implemented")
-	}
-	return nil, errors.New(unavailable.Reason)
+	return nil, unavailable.err()
 }

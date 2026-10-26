@@ -36,7 +36,7 @@ type Error struct {
 	Message string
 }
 
-// Error 返回与 connect-go 一致的 “code: message” 文本，便于上层按前缀映射状态码。
+// Error 返回与 connect-go 一致的 “code: message” 文本。
 func (e *Error) Error() string {
 	switch {
 	case e.Code == "":
@@ -46,6 +46,11 @@ func (e *Error) Error() string {
 	default:
 		return e.Code + ": " + e.Message
 	}
+}
+
+// ErrorCode 实现 adapter.CodedError，供 HTTP 层做稳定映射。
+func (e *Error) ErrorCode() string {
+	return e.Code
 }
 
 // Client 是绑定到单个上游地址的 Connect 客户端。
@@ -118,27 +123,27 @@ type ServerStream struct {
 
 // Receive 读取下一个消息帧；流结束或出错时返回 false。
 func (s *ServerStream) Receive() ([]byte, bool) {
-	for !s.done && s.err == nil {
-		flags, payload, err := readFrame(s.reader)
-		if err != nil {
-			s.err = err
-			return nil, false
-		}
-		if flags&flagEndStream != 0 {
-			s.done = true
-			s.err = endStreamError(payload)
-			return nil, false
-		}
-		if flags&flagCompressed != 0 {
-			payload, err = decompress(payload)
-			if err != nil {
-				s.err = fmt.Errorf("decompress connect frame: %w", err)
-				return nil, false
-			}
-		}
-		return payload, true
+	if s.done || s.err != nil {
+		return nil, false
 	}
-	return nil, false
+	flags, payload, err := readFrame(s.reader)
+	if err != nil {
+		s.err = err
+		return nil, false
+	}
+	if flags&flagEndStream != 0 {
+		s.done = true
+		s.err = endStreamError(payload)
+		return nil, false
+	}
+	if flags&flagCompressed != 0 {
+		payload, err = decompress(payload)
+		if err != nil {
+			s.err = fmt.Errorf("decompress connect frame: %w", err)
+			return nil, false
+		}
+	}
+	return payload, true
 }
 
 // Err 返回流结束后的错误；正常结束时为 nil。
@@ -172,9 +177,12 @@ func readFrame(reader *bufio.Reader) (byte, []byte, error) {
 	if length > maxMessageSize {
 		return 0, nil, fmt.Errorf("connect frame too large: %d bytes", length)
 	}
-	payload := make([]byte, length)
-	if _, err := io.ReadFull(reader, payload); err != nil {
+	payload, err := io.ReadAll(io.LimitReader(reader, int64(length)))
+	if err != nil {
 		return 0, nil, fmt.Errorf("read connect frame payload: %w", err)
+	}
+	if uint32(len(payload)) != length {
+		return 0, nil, fmt.Errorf("connect frame truncated: got %d of %d bytes", len(payload), length)
 	}
 	return header[0], payload, nil
 }

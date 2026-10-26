@@ -4,8 +4,11 @@
 package config
 
 import (
+	"errors"
 	"fmt"
+	"net/url"
 	"os"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -41,12 +44,16 @@ type DevinConfig struct {
 	Token string `yaml:"token"`
 	// Model 是 Devin chat model UID。
 	Model string `yaml:"model"`
-	// Proxy 是可选的 HTTP/HTTPS/SOCKS5 代理地址；为空时直连或走系统环境变量。
+	// Proxy 是可选的 HTTP/HTTPS 代理地址；为空时直连或走系统环境变量。
 	Proxy string `yaml:"proxy"`
 	// ForceHTTP1 为 true 时强制使用 HTTP/1.1，每请求独立 TCP 连接，
 	// 避免 HTTP/2 单连接多 stream 复用导致的上游并发瓶颈（首字延迟飙升/卡住）。
 	// 行为对齐 Devin 客户端多窗口各自独立连接的模式。默认 true。
 	ForceHTTP1 *bool `yaml:"force_http1"`
+	// StreamIdleTimeout 是上游流两次帧之间的最长等待时间，例如 5m；0 表示不限制。
+	StreamIdleTimeout string `yaml:"stream_idle_timeout"`
+	// IdleTimeout 是 StreamIdleTimeout 解析后的值，由 Validate 填充。
+	IdleTimeout time.Duration `yaml:"-"`
 }
 
 // DebugConfig 保存请求级调试日志配置。
@@ -75,6 +82,9 @@ func Load(path string) (Config, error) {
 	if err := decoder.Decode(&config); err != nil {
 		return Config{}, fmt.Errorf("decode config %q: %w", path, err)
 	}
+	if err := applyEnvironment(&config); err != nil {
+		return Config{}, fmt.Errorf("apply environment for %q: %w", path, err)
+	}
 	if err := config.Validate(); err != nil {
 		return Config{}, fmt.Errorf("validate config %q: %w", path, err)
 	}
@@ -93,6 +103,38 @@ func (config *Config) Validate() error {
 	if config.Devin.ForceHTTP1 == nil {
 		force := true
 		config.Devin.ForceHTTP1 = &force
+	}
+	if config.Devin.StreamIdleTimeout == "" {
+		config.Devin.StreamIdleTimeout = "5m"
+	}
+	idleTimeout, err := time.ParseDuration(config.Devin.StreamIdleTimeout)
+	if err != nil {
+		return fmt.Errorf("devin.stream_idle_timeout %q: %w", config.Devin.StreamIdleTimeout, err)
+	}
+	if idleTimeout < 0 {
+		return errors.New("devin.stream_idle_timeout cannot be negative")
+	}
+	config.Devin.IdleTimeout = idleTimeout
+	if err := validateBaseURL(config.Devin.BaseURL); err != nil {
+		return err
+	}
+	return nil
+}
+
+// validateBaseURL 检查上游地址的 scheme 与 host，避免把 token 发到意外的协议上。
+func validateBaseURL(raw string) error {
+	if raw == "" {
+		return nil
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("devin.base_url %q: %w", raw, err)
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return fmt.Errorf("devin.base_url %q: scheme must be http or https", raw)
+	}
+	if parsed.Host == "" {
+		return fmt.Errorf("devin.base_url %q: host is required", raw)
 	}
 	return nil
 }

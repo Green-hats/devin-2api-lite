@@ -8,7 +8,9 @@ import (
 	"io"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/Green-hats/devin-2api-lite/internal/llm"
 )
@@ -366,6 +368,7 @@ type fakeFrameStream struct {
 	frames   [][]byte
 	position int
 	err      error
+	closed   bool
 }
 
 func (f *fakeFrameStream) Receive() ([]byte, bool) {
@@ -379,6 +382,12 @@ func (f *fakeFrameStream) Receive() ([]byte, bool) {
 
 func (f *fakeFrameStream) Err() error {
 	return f.err
+}
+
+// Close 释放测试流。
+func (f *fakeFrameStream) Close() error {
+	f.closed = true
+	return nil
 }
 
 // TestResponseStreamDecodesFrames 的测试动机是覆盖「帧 → 中间事件流」的完整消费路径。
@@ -428,5 +437,167 @@ func TestResponseStreamSurfacesUpstreamError(t *testing.T) {
 	}
 	if !strings.Contains(last.Error.ErrorMessage, "resource_exhausted") {
 		t.Fatalf("error message = %q", last.Error.ErrorMessage)
+	}
+}
+
+// blockingFrameStream 模拟卡住的上游：Receive 阻塞到 Close 被调用。
+type blockingFrameStream struct {
+	closed chan struct{}
+	once   sync.Once
+}
+
+func newBlockingFrameStream() *blockingFrameStream {
+	return &blockingFrameStream{closed: make(chan struct{})}
+}
+
+func (stream *blockingFrameStream) Receive() ([]byte, bool) {
+	<-stream.closed
+	return nil, false
+}
+
+func (stream *blockingFrameStream) Err() error { return nil }
+
+func (stream *blockingFrameStream) Close() error {
+	stream.once.Do(func() { close(stream.closed) })
+	return nil
+}
+
+func (stream *blockingFrameStream) isClosed() bool {
+	select {
+	case <-stream.closed:
+		return true
+	default:
+		return false
+	}
+}
+
+// TestChatRequestEncodesImages 锁定图片写入 Images 的 wire 结构。
+func TestChatRequestEncodesImages(t *testing.T) {
+	image := llm.ImageContent{Data: "data:image/png;base64,aGVsbG8=", MIMEType: "image/png"}
+	request, err := buildRequest(llm.RequestMessages{
+		Model: "gpt-5",
+		Messages: []llm.Message{
+			llm.UserMessage{Content: []llm.Content{llm.TextContent{Text: "look"}, image}},
+		},
+	}, Config{Token: "token", Model: "gpt-5"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fields := parseFields(t, request.encode())
+	if len(fields[3]) != 1 {
+		t.Fatalf("prompt count = %d", len(fields[3]))
+	}
+	prompt := parseFields(t, fields[3][0].raw)
+	images := prompt[10]
+	if len(images) != 1 {
+		t.Fatalf("image count = %d", len(images))
+	}
+	encoded := parseFields(t, images[0].raw)
+	if got := string(rawField(t, encoded, 1)); got != "aGVsbG8=" {
+		t.Fatalf("base64 = %q", got)
+	}
+	if got := string(rawField(t, encoded, 2)); got != "image/png" {
+		t.Fatalf("mime = %q", got)
+	}
+}
+
+// TestDecodeToolCallFrame 覆盖真实响应帧里的工具调用解码路径。
+func TestDecodeToolCallFrame(t *testing.T) {
+	var frame buffer
+	frame.message(6, func(call *buffer) {
+		call.str(1, "call-1")
+		call.str(2, "read_file")
+		call.str(3, `{"path":"a.txt"}`)
+	})
+	frame.uint(5, stopReasonFunctionCall)
+
+	response, err := decodeChatResponse(frame.data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(response.deltaToolCalls) != 1 {
+		t.Fatalf("tool calls = %d", len(response.deltaToolCalls))
+	}
+	if response.deltaToolCalls[0].name != "read_file" {
+		t.Fatalf("tool name = %q", response.deltaToolCalls[0].name)
+	}
+
+	decoder := newResponseDecoder("glm-5-2")
+	events := decoder.decode(response)
+	events = append(events, decoder.finish(nil)...)
+	done := events[len(events)-1]
+	if done.Type != llm.ResponseEventDone || done.Message.StopReason != llm.StopReasonToolUse {
+		t.Fatalf("done = %#v", done)
+	}
+	var call llm.ToolCall
+	for _, block := range done.Message.Content {
+		if typed, ok := block.(llm.ToolCall); ok {
+			call = typed
+		}
+	}
+	if string(call.Arguments) != `{"path":"a.txt"}` {
+		t.Fatalf("arguments = %s", call.Arguments)
+	}
+}
+
+// TestResponseStreamIdleTimeout 验证卡住的上游会在超时后关闭并给出错误码。
+func TestResponseStreamIdleTimeout(t *testing.T) {
+	upstream := newBlockingFrameStream()
+	stream := &responseStream{
+		upstream:    upstream,
+		decoder:     newResponseDecoder("glm-5-2"),
+		idleTimeout: 20 * time.Millisecond,
+	}
+	ctx := context.Background()
+	if _, err := stream.Recv(ctx); err != nil {
+		t.Fatal(err)
+	}
+	event, err := stream.Recv(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if event.Type != llm.ResponseEventError || event.Error == nil {
+		t.Fatalf("event = %#v", event)
+	}
+	if !strings.Contains(event.Error.ErrorMessage, "idle") {
+		t.Fatalf("message = %q", event.Error.ErrorMessage)
+	}
+	if event.Error.ErrorCode != "deadline_exceeded" {
+		t.Fatalf("code = %q", event.Error.ErrorCode)
+	}
+	if !upstream.isClosed() {
+		t.Fatal("upstream was not closed on idle timeout")
+	}
+	if _, err := stream.Recv(ctx); !errors.Is(err, io.EOF) {
+		t.Fatalf("final err = %v", err)
+	}
+}
+
+// TestResponseStreamCloseIsIdempotent 验证 Close 可重复调用且会释放上游。
+func TestResponseStreamCloseIsIdempotent(t *testing.T) {
+	upstream := &fakeFrameStream{}
+	stream := &responseStream{upstream: upstream, decoder: newResponseDecoder("m")}
+	if err := stream.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := stream.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if !upstream.closed {
+		t.Fatal("upstream was not closed")
+	}
+}
+
+// TestImageValidationUsesModelCatalog 验证目录能力优先于硬编码名单。
+func TestImageValidationUsesModelCatalog(t *testing.T) {
+	provider := &Adapter{imageSupport: map[string]bool{"vision-model": true, "text-model": false}}
+	request := llm.RequestMessages{Messages: []llm.Message{
+		llm.UserMessage{Content: []llm.Content{llm.ImageContent{Data: "aGVsbG8=", MIMEType: "image/png"}}},
+	}}
+	if err := provider.validateImagesForModel(request, "vision-model"); err != nil {
+		t.Fatalf("vision model rejected: %v", err)
+	}
+	if err := provider.validateImagesForModel(request, "text-model"); err == nil {
+		t.Fatal("text model should be rejected")
 	}
 }

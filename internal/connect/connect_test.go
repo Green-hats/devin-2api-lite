@@ -2,6 +2,7 @@
 package connect
 
 import (
+	"bufio"
 	"bytes"
 	"compress/gzip"
 	"context"
@@ -207,4 +208,25 @@ func TestResponseErrorFallsBackToStatusText(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "http_502") {
 		t.Fatalf("error = %v", err)
 	}
+}
+
+// TestErrorCode 验证 Connect 错误实现了稳定错误码。
+func TestErrorCode(t *testing.T) {
+	err := &Error{Code: "unauthenticated", Message: "bad token"}
+	if err.ErrorCode() != "unauthenticated" {
+		t.Fatalf("code = %q", err.ErrorCode())
+	}
+	if err.Error() != "unauthenticated: bad token" {
+		t.Fatalf("message = %q", err.Error())
+	}
+}
+
+// FuzzReadFrame 保证畸形帧不会导致 panic。
+func FuzzReadFrame(f *testing.F) {
+	f.Add([]byte{})
+	f.Add([]byte{0, 0, 0, 0, 1, 'x'})
+	f.Add([]byte{0x02, 0, 0, 0, 2, '{', '}'})
+	f.Fuzz(func(t *testing.T, data []byte) {
+		_, _, _ = readFrame(bufio.NewReader(bytes.NewReader(data)))
+	})
 }

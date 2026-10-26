@@ -5,9 +5,23 @@ package adapter
 
 import (
 	"context"
+	"errors"
 
 	"github.com/Green-hats/devin-2api-lite/internal/llm"
 )
+
+// ErrUnavailable 表示尚未配置可用的供应商适配器。
+var ErrUnavailable = errors.New("provider adapter is not configured")
+
+// ErrStreamIdle 表示上游流在约定时间内没有产生任何帧。
+var ErrStreamIdle = errors.New("upstream stream idle timeout")
+
+// CodedError 是带稳定错误码的上游错误，供 HTTP 层映射状态码。
+type CodedError interface {
+	error
+	// ErrorCode 返回 Connect / 上游错误码，例如 unauthenticated。
+	ErrorCode() string
+}
 
 // ModelInfo 是对外暴露的模型目录条目（OpenAI /v1/models 形状）。
 type ModelInfo struct {

@@ -30,7 +30,6 @@ type StreamEncoder struct {
 	textStarted     bool
 	thinkingIndex   int
 	thinkingStarted bool
-	toolIndex       int
 	toolCalls       []*toolCallState
 	finished        bool
 	finalUsage      llm.Usage

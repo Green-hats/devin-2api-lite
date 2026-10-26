@@ -2,9 +2,12 @@
 package app
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -15,18 +18,22 @@ import (
 
 	"github.com/Green-hats/devin-2api-lite/internal/adapter"
 	"github.com/Green-hats/devin-2api-lite/internal/config"
+	"github.com/Green-hats/devin-2api-lite/internal/connect"
 	"github.com/Green-hats/devin-2api-lite/internal/debuglog"
 	"github.com/Green-hats/devin-2api-lite/internal/llm"
 )
 
 type fakeAdapter struct {
 	lastRequest llm.RequestMessages
+	lastStream  *fakeStream
 	events      []llm.ResponseEvent
 }
 
 func (fake *fakeAdapter) Stream(_ context.Context, request llm.RequestMessages) (llm.ResponseStream, error) {
 	fake.lastRequest = request
-	return &fakeStream{events: fake.events}, nil
+	stream := &fakeStream{events: fake.events}
+	fake.lastStream = stream
+	return stream, nil
 }
 
 func (fake *fakeAdapter) ListModels(context.Context) ([]adapter.ModelInfo, error) {
@@ -36,6 +43,7 @@ func (fake *fakeAdapter) ListModels(context.Context) ([]adapter.ModelInfo, error
 type fakeStream struct {
 	events []llm.ResponseEvent
 	index  int
+	closed bool
 }
 
 func (stream *fakeStream) Recv(_ context.Context) (llm.ResponseEvent, error) {
@@ -45,6 +53,12 @@ func (stream *fakeStream) Recv(_ context.Context) (llm.ResponseEvent, error) {
 	event := stream.events[stream.index]
 	stream.index++
 	return event, nil
+}
+
+// Close 释放测试流。
+func (stream *fakeStream) Close() error {
+	stream.closed = true
+	return nil
 }
 
 // concurrentFakeAdapter 为每个 model 返回独立的事件流，用于并发隔离测试。
@@ -354,4 +368,154 @@ func TestConcurrentResponsesDoNotInterleave(t *testing.T) {
 		}
 	}
 	wg.Wait()
+}
+
+// TestUnavailableReturns503 验证 token 未配置时 /v1/* 返回 503 而不是 502。
+func TestUnavailableReturns503(t *testing.T) {
+	application := New(adapter.Unavailable{Reason: "devin.token is not configured"}, config.ServerConfig{Listen: ":0"}, nil)
+	for _, path := range []string{"/v1/chat/completions", "/v1/models"} {
+		method := http.MethodPost
+		body := `{"model":"glm-5-2","messages":[{"role":"user","content":"hi"}]}`
+		if path == "/v1/models" {
+			method = http.MethodGet
+			body = ""
+		}
+		request := httptest.NewRequest(method, path, strings.NewReader(body))
+		response := httptest.NewRecorder()
+		application.Router().ServeHTTP(response, request)
+		if response.Code != http.StatusServiceUnavailable {
+			t.Fatalf("%s status = %d, want 503: %s", path, response.Code, response.Body.String())
+		}
+	}
+}
+
+// TestAuthAndRequestID 验证 API Key 校验和每个响应都有请求 ID。
+func TestAuthAndRequestID(t *testing.T) {
+	application := New(&fakeAdapter{}, config.ServerConfig{Listen: ":0"}, nil)
+	application.SetAPIKey("secret")
+
+	request := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	response := httptest.NewRecorder()
+	application.Router().ServeHTTP(response, request)
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("missing key status = %d", response.Code)
+	}
+	if response.Header().Get("X-Request-Id") == "" {
+		t.Fatal("401 response lacks X-Request-Id")
+	}
+
+	request = httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	request.Header.Set("Authorization", "Bearer wrong")
+	response = httptest.NewRecorder()
+	application.Router().ServeHTTP(response, request)
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("wrong key status = %d", response.Code)
+	}
+
+	request = httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	request.Header.Set("X-Api-Key", "secret")
+	response = httptest.NewRecorder()
+	application.Router().ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("valid key status = %d: %s", response.Code, response.Body.String())
+	}
+	if response.Header().Get("X-Request-Id") == "" {
+		t.Fatal("200 response lacks X-Request-Id")
+	}
+}
+
+// TestRequestBodyTooLargeReturns413 验证超过 32 MiB 的请求体返回 413。
+func TestRequestBodyTooLargeReturns413(t *testing.T) {
+	application := New(&fakeAdapter{}, config.ServerConfig{Listen: ":0"}, nil)
+	body := bytes.Repeat([]byte("a"), 32<<20+1)
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+	response := httptest.NewRecorder()
+	application.Router().ServeHTTP(response, request)
+	if response.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status = %d, want 413", response.Code)
+	}
+}
+
+// TestProviderErrorStatusMapping 验证 typed code 优先于字符串兜底。
+func TestProviderErrorStatusMapping(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		want int
+	}{
+		{"unavailable", adapter.ErrUnavailable, http.StatusServiceUnavailable},
+		{"idle", adapter.ErrStreamIdle, http.StatusGatewayTimeout},
+		{"quota", fmt.Errorf("wrapped: %w", &connect.Error{Code: "resource_exhausted", Message: "quota"}), http.StatusTooManyRequests},
+		{"auth", &connect.Error{Code: "unauthenticated", Message: "bad token"}, http.StatusUnauthorized},
+		{"legacy", errors.New("unauthenticated: bad token"), http.StatusUnauthorized},
+		{"unknown", errors.New("boom"), http.StatusBadGateway},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			if got := mapProviderErrorStatus(testCase.err); got != testCase.want {
+				t.Fatalf("status = %d, want %d", got, testCase.want)
+			}
+		})
+	}
+}
+
+// TestIdleErrorEventReturns504 验证流内错误保留错误码并映射 504。
+func TestIdleErrorEventReturns504(t *testing.T) {
+	fake := &fakeAdapter{events: []llm.ResponseEvent{{
+		Type:   llm.ResponseEventError,
+		Reason: llm.StopReasonError,
+		Error: &llm.AssistantMessage{
+			StopReason:   llm.StopReasonError,
+			ErrorMessage: "upstream stream idle timeout after 5m0s",
+			ErrorCode:    "deadline_exceeded",
+		},
+	}}}
+	application := New(fake, config.ServerConfig{Listen: ":0"}, nil)
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"glm-5-2","messages":[{"role":"user","content":"hi"}]}`))
+	response := httptest.NewRecorder()
+	application.Router().ServeHTTP(response, request)
+	if response.Code != http.StatusGatewayTimeout {
+		t.Fatalf("status = %d, want 504: %s", response.Code, response.Body.String())
+	}
+}
+
+// TestStreamIsClosedAfterRequest 验证 handler 结束时会关闭上游流。
+func TestStreamIsClosedAfterRequest(t *testing.T) {
+	fake := &fakeAdapter{events: []llm.ResponseEvent{{
+		Type:   llm.ResponseEventDone,
+		Reason: llm.StopReasonStop,
+		Message: &llm.AssistantMessage{
+			ResponseID: "resp-1", StopReason: llm.StopReasonStop,
+		},
+	}}}
+	application := New(fake, config.ServerConfig{Listen: ":0"}, nil)
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"glm-5-2","messages":[{"role":"user","content":"hi"}]}`))
+	response := httptest.NewRecorder()
+	application.Router().ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", response.Code, response.Body.String())
+	}
+	if fake.lastStream == nil || !fake.lastStream.closed {
+		t.Fatal("upstream stream was not closed")
+	}
+}
+
+// TestFailuresAreLoggedWithoutDebug 验证关闭 debug 日志时失败仍会进入应用日志。
+func TestFailuresAreLoggedWithoutDebug(t *testing.T) {
+	var logs bytes.Buffer
+	application := New(&fakeAdapter{}, config.ServerConfig{Listen: ":0"}, nil)
+	application.SetLogger(slog.New(slog.NewTextHandler(&logs, nil)))
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{}`))
+	response := httptest.NewRecorder()
+	application.Router().ServeHTTP(response, request)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d", response.Code)
+	}
+	output := logs.String()
+	if !strings.Contains(output, "request_failed") || !strings.Contains(output, "http_decode") {
+		t.Fatalf("logs = %s", output)
+	}
+	if !strings.Contains(output, "id=") {
+		t.Fatalf("logs lack request id: %s", output)
+	}
 }
