@@ -1,5 +1,3 @@
-<div align="right"><sub><a href="README.zh-CN.md">中文</a> | <b>English</b></sub></div>
-
 <div align="center">
 
 <img src="docs/banner.en.png" alt="devin-2api lite" width="100%">
@@ -11,6 +9,8 @@
 [![Tests](https://img.shields.io/badge/tests-85%20passing-2ea44f?style=flat-square)](#development)
 [![protoc](https://img.shields.io/badge/protoc-not%20required-4c78a8?style=flat-square)](#what-it-is)
 [![Dependencies](https://img.shields.io/badge/dependencies-1-f2c55c?style=flat-square)](go.mod)
+
+<sub><b>English</b> | <a href="README.zh-CN.md">中文</a></sub>
 
 [Quick start](#quick-start) · [Endpoints](#endpoints) · [Configuration](#configuration) · [Credits](#credits)
 
