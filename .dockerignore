@@ -1,0 +1,9 @@
+.git
+.github
+logs
+.gitignore
+*.md
+config.yaml
+.gocache
+.gomodcache
+.gopath

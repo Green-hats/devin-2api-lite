@@ -1,0 +1,19 @@
+.DS_Store
+
+# 本地运行配置（含真实 devin token，不要提交）
+config.yaml
+
+# 编译产物
+/devin-2api
+/devin-2api.exe
+/devin-2api-linux-*
+
+# 运行与测试产物
+/logs/
+coverage.out
+*.test
+
+# 工作区内的 Go 缓存（离线/沙箱构建时使用）
+/.gocache/
+/.gomodcache/
+/.gopath/

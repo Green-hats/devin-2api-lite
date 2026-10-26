@@ -1,0 +1,38 @@
+devin-2api lite
+Copyright (c) 2026 Green-hats
+https://github.com/Green-hats/devin-2api-lite
+
+This project is a trimmed and partially rewritten fork of devin-2api:
+
+    devin-2api
+    Copyright (c) 2026 leookun
+    https://github.com/leookun/devin-2api
+    Licensed under the MIT License (see LICENSE).
+
+Derived from the original project (copied or adapted, import paths changed):
+
+  - internal/llm/                         vendor-neutral request/response model
+  - internal/api/openai/{chat,responses}/ OpenAI HTTP codecs
+  - internal/api/common/                  shared content/error helpers
+  - internal/adapter/devin/               request assembly, tool-description
+                                          workaround, response frame decoder
+  - internal/app/                         routing and request lifecycle (trimmed)
+  - internal/config/, internal/debuglog/  configuration and debug logging
+                                          (trimmed)
+  - README structure, docs, and the protocol knowledge recorded in
+    docs/upstream-protocol.md, which originates from the original project's
+    protobuf descriptor extraction work (cmd/protoextract).
+
+New in this fork:
+
+  - internal/connect/                     hand-written Connect protocol client
+  - internal/adapter/devin/wire.go        hand-written protobuf wire codec
+  - internal/adapter/devin/types.go       minimal upstream message definitions
+  - internal/app/app_upstream_test.go      fake-upstream end-to-end tests
+  - internal/connect/connect_test.go       framing/error/gzip tests
+  - docs/architecture.png, docs/banner.png, README rewrite
+
+The upstream Devin/Windsurf protocol is proprietary and undocumented. This
+project is not affiliated with, endorsed by, or supported by Devin, Windsurf,
+Codeium, or Cognition. It accesses the upstream service with a user-provided
+session token; use it only in accordance with the upstream terms of service.

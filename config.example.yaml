@@ -1,0 +1,22 @@
+server:
+  listen: ":8080"
+  # 同时处理的 /v1/* 请求数上限；0 或不填表示使用默认值 1024。
+  max_concurrency: 1024
+
+debug:
+  # 开启后每个请求在 config.yaml 同目录的 logs/<时间>/ 下留一份调试记录。
+  enabled: false
+
+devin:
+  base_url: "https://server.codeium.com"
+  token: "devin-session-token$..."
+  # model: "swe-1-7"
+  model: "glm-5-2"
+  # 代理地址（可选），支持 http:// 与 https://；留空则直连或走系统代理环境变量。
+  proxy: ""
+  # 强制 HTTP/1.1：每请求独立 TCP 连接，避免 HTTP/2 多 stream 复用被上游串行处理。
+  force_http1: true
+
+auth:
+  # /v1/* 的访问密钥；留空则不校验。客户端可用 Authorization: Bearer 或 X-Api-Key。
+  api_key: ""
