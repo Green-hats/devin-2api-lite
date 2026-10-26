@@ -161,7 +161,7 @@ OpenAI SDK、Codex CLI、IDE 插件等 OpenAI 兼容客户端，把 Base URL 指
 | 上游绑定 | protoc 生成 Connect 绑定 | 手写 wire + Connect |
 | 构建前置 | `task generate` | 无 |
 | 依赖 | 7 个 | 1 个（`yaml.v3`） |
-| 生产代码 | 8,851 行 | 6,186 行 |
+| 生产代码 | 8,851 行 | 6,189 行 |
 
 `llm` 中间层与协议抽象没有变化；要加回 Anthropic 或 WebSocket，只需补一个编解码包。
 

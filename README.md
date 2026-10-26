@@ -163,7 +163,7 @@ first failing stage. Failures are also logged to stderr with a request ID, even 
 | Upstream bindings | Generated Connect bindings | Hand-written wire + Connect |
 | Build step | `task generate` | None |
 | Dependencies | 7 | 1 (`yaml.v3`) |
-| Production LOC | 8,851 | 6,186 |
+| Production LOC | 8,851 | 6,189 |
 
 The `llm` layer and protocol abstraction are unchanged; adding Anthropic or WebSocket back means adding one
 codec package.

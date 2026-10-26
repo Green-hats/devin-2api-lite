@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Green-hats/devin-2api-lite/internal/adapter/devin"
 	"github.com/Green-hats/devin-2api-lite/internal/config"
@@ -255,5 +256,51 @@ func TestHealthz(t *testing.T) {
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d", response.StatusCode)
+	}
+}
+
+// TestUpstreamIdleTimeoutReturns504 验证上游只发响应头不再发帧时，网关按配置超时并返回 504。
+func TestUpstreamIdleTimeoutReturns504(t *testing.T) {
+	release := make(chan struct{})
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Content-Type", "application/connect+proto")
+		writer.WriteHeader(http.StatusOK)
+		if flusher, ok := writer.(http.Flusher); ok {
+			flusher.Flush()
+		}
+		<-release
+	}))
+	defer func() {
+		close(release)
+		upstream.Close()
+	}()
+
+	provider, err := devin.New(devin.Config{
+		BaseURL:     upstream.URL,
+		Token:       "test-token",
+		Model:       "glm-5-2",
+		ForceHTTP1:  true,
+		IdleTimeout: 100 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	application := New(provider, config.ServerConfig{Listen: ":0"}, nil)
+	gateway := httptest.NewServer(application.Router())
+	defer gateway.Close()
+
+	started := time.Now()
+	response, err := http.Post(gateway.URL+"/v1/chat/completions", "application/json",
+		strings.NewReader(`{"model":"glm-5-2","messages":[{"role":"user","content":"hi"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusGatewayTimeout {
+		raw, _ := io.ReadAll(response.Body)
+		t.Fatalf("status = %d, want 504: %s", response.StatusCode, raw)
+	}
+	if elapsed := time.Since(started); elapsed > 3*time.Second {
+		t.Fatalf("idle timeout took %s", elapsed)
 	}
 }
