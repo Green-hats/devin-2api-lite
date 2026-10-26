@@ -27,6 +27,10 @@ func applyEnvironment(config *Config) error {
 	}
 	stringEnv("CATALOG_SNAPSHOT", &config.Catalog.Snapshot)
 	stringEnv("CATALOG_REFRESH", &config.Catalog.Refresh)
+	stringEnv("CATALOG_MODEL_MODE", &config.Catalog.ModelMode)
+	if err := boolValueEnv("CATALOG_AUTO_TIERS", &config.Catalog.AutoTiers); err != nil {
+		return err
+	}
 	stringEnv("AUTH_API_KEY", &config.Auth.APIKey)
 	return nil
 }

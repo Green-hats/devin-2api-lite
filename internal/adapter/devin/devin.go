@@ -53,6 +53,10 @@ type Config struct {
 	CatalogRefresh time.Duration
 	// Logger 用于记录快照写入/回退等非请求错误；nil 表示丢弃。
 	Logger *slog.Logger
+	// ModelMode 控制 /v1/models 的展示方式：raw、openai 或 both。
+	ModelMode string
+	// AutoTiers 表示从 family metadata 自动生成档位映射。
+	AutoTiers bool
 }
 
 // Adapter 调用 Devin 的 ApiServerService/GetChatMessage。
@@ -118,7 +122,7 @@ func New(config Config) (*Adapter, error) {
 	if logger == nil {
 		logger = slog.New(slog.NewTextHandler(io.Discard, nil))
 	}
-	return &Adapter{
+	provider := &Adapter{
 		config:         config,
 		streamClient:   streamClient,
 		unaryClient:    unaryClient,
@@ -126,7 +130,17 @@ func New(config Config) (*Adapter, error) {
 		snapshotPath:   config.SnapshotPath,
 		logger:         logger,
 		imageSupport:   make(map[string]bool),
-	}, nil
+	}
+	// 自动档位可以在首请求前先从快照恢复 families，避免多一次上游调用。
+	if config.AutoTiers && config.SnapshotPath != "" {
+		if snapshot, snapshotErr := loadCatalogSnapshot(config.SnapshotPath); snapshotErr == nil {
+			provider.catalogFamilies = snapshot.Families
+			provider.catalogGeneratedAt = snapshot.GeneratedAt
+			provider.catalogSource = snapshot.Source
+			provider.catalogHash = snapshot.CatalogHash
+		}
+	}
+	return provider, nil
 }
 
 // Stream 将一份中间请求转换为 Devin RPC，并返回一份中间响应事件流。
@@ -138,7 +152,7 @@ func (adapter *Adapter) Stream(ctx context.Context, request llm.RequestMessages)
 	if model == "" {
 		model = adapter.config.Model
 	}
-	model, err := resolveReasoningModel(model, request.ReasoningEffort, adapter.config.ReasoningTiers)
+	model, err := adapter.resolveReasoning(ctx, model, request.ReasoningEffort)
 	if err != nil {
 		return nil, err
 	}

@@ -8,6 +8,10 @@ catalog:
   snapshot: "state/models.json"
   # 目录刷新间隔；默认 5m。
   refresh: "5m"
+  # raw = 原样展示上游 id；openai = 只展示基础模型；both = 两者都展示。
+  model_mode: "openai"
+  # 从 family metadata 自动生成基础模型和档位建议。
+  auto_tiers: true
 
 debug:
   # 开启后每个请求在 config.yaml 同目录的 logs/<时间>/ 下留一份调试记录。

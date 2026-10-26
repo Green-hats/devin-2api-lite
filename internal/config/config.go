@@ -70,6 +70,10 @@ type CatalogConfig struct {
 	Refresh string `yaml:"refresh"`
 	// RefreshInterval 是 Refresh 解析后的值，由 Validate 填充。
 	RefreshInterval time.Duration `yaml:"-"`
+	// ModelMode 控制 /v1/models 的展示方式：raw、openai 或 both。
+	ModelMode string `yaml:"model_mode"`
+	// AutoTiers 表示从 family metadata 自动生成基础模型/档位映射。
+	AutoTiers bool `yaml:"auto_tiers"`
 }
 
 // DebugConfig 保存请求级调试日志配置。
@@ -148,6 +152,13 @@ func (config *Config) Validate() error {
 		return errors.New("catalog.refresh cannot be negative")
 	}
 	config.Catalog.RefreshInterval = refreshInterval
+	switch config.Catalog.ModelMode {
+	case "":
+		config.Catalog.ModelMode = "raw"
+	case "raw", "openai", "both":
+	default:
+		return fmt.Errorf("catalog.model_mode must be raw, openai or both, got %q", config.Catalog.ModelMode)
+	}
 	return nil
 }
 

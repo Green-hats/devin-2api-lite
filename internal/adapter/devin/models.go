@@ -121,10 +121,14 @@ func supportedEfforts(tiers map[string]string) string {
 // 上游失败时回退到本地快照，并在 manifest 中标记 stale。
 func (a *Adapter) ListModels(ctx context.Context) ([]adapter.ModelInfo, error) {
 	a.modelsMu.RLock()
-	if a.models != nil && time.Now().Before(a.modelsExpiry) {
+	cacheReady := a.models != nil && time.Now().Before(a.modelsExpiry)
+	if cacheReady && a.config.AutoTiers && len(a.catalogFamilies) == 0 {
+		cacheReady = false
+	}
+	if cacheReady {
 		cached := cloneModelInfo(a.models)
 		a.modelsMu.RUnlock()
-		return cached, nil
+		return a.visibleModels(cached), nil
 	}
 	a.modelsMu.RUnlock()
 
@@ -141,14 +145,14 @@ func (a *Adapter) ListModels(ctx context.Context) ([]adapter.ModelInfo, error) {
 	}).encode())
 	if err != nil {
 		if models, ok := a.loadSnapshotFallback(err); ok {
-			return models, nil
+			return a.visibleModels(models), nil
 		}
 		return nil, fmt.Errorf("call GetCascadeModelConfigs: %w", err)
 	}
 	response, err := decodeModelConfigs(payload)
 	if err != nil {
 		if models, ok := a.loadSnapshotFallback(err); ok {
-			return models, nil
+			return a.visibleModels(models), nil
 		}
 		return nil, fmt.Errorf("decode Devin model configs: %w", err)
 	}
@@ -199,6 +203,10 @@ func (a *Adapter) ListModels(ctx context.Context) ([]adapter.ModelInfo, error) {
 	}
 
 	families := suggestFamilies(models)
+	effective := cloneTiers(a.config.ReasoningTiers)
+	if a.config.AutoTiers {
+		effective = mergeTiers(effective, families)
+	}
 	generatedAt := time.Now().UTC()
 	hash := catalogHash(models, families)
 	a.recordImageSupport(models)
@@ -208,7 +216,7 @@ func (a *Adapter) ListModels(ctx context.Context) ([]adapter.ModelInfo, error) {
 	if a.models != nil && time.Now().Before(a.modelsExpiry) {
 		cached := cloneModelInfo(a.models)
 		a.modelsMu.Unlock()
-		return cached, nil
+		return a.visibleModels(cached), nil
 	}
 	previousHash := a.catalogHash
 	a.models = models
@@ -230,7 +238,7 @@ func (a *Adapter) ListModels(ctx context.Context) ([]adapter.ModelInfo, error) {
 			Families:      families,
 		})
 	}
-	return cloneModelInfo(models), nil
+	return projectModels(models, effective, a.config.ModelMode), nil
 }
 
 // recordImageSupport 把模型目录中的图片能力写入本地缓存。

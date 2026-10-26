@@ -124,8 +124,14 @@ func (application *App) listModels(writer http.ResponseWriter, request *http.Req
 		entry := map[string]any{
 			"id": m.ID, "object": "model", "created": created, "owned_by": ownedBy,
 		}
-		// 非 OpenAI 标准字段，供客户端识别是否可传图。
+		// 非 OpenAI 标准字段，供客户端识别是否可传图/传档位。
 		entry["supports_images"] = m.SupportsImages
+		if len(m.ReasoningEfforts) > 0 {
+			entry["reasoning_efforts"] = m.ReasoningEfforts
+		}
+		if m.RequiresReasoningEffort {
+			entry["requires_reasoning_effort"] = true
+		}
 		data = append(data, entry)
 	}
 	writer.Header().Set("Content-Type", "application/json")
@@ -161,10 +167,17 @@ func (application *App) getModel(writer http.ResponseWriter, request *http.Reque
 				ownedBy = "devin"
 			}
 			writer.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(writer).Encode(map[string]any{
+			entry := map[string]any{
 				"id": m.ID, "object": "model", "created": created, "owned_by": ownedBy,
 				"supports_images": m.SupportsImages,
-			})
+			}
+			if len(m.ReasoningEfforts) > 0 {
+				entry["reasoning_efforts"] = m.ReasoningEfforts
+			}
+			if m.RequiresReasoningEffort {
+				entry["requires_reasoning_effort"] = true
+			}
+			_ = json.NewEncoder(writer).Encode(entry)
 			return
 		}
 	}

@@ -29,6 +29,7 @@ type fakeAdapter struct {
 	lastStream  *fakeStream
 	events      []llm.ResponseEvent
 	manifest    adapter.Manifest
+	models      []adapter.ModelInfo
 }
 
 func (fake *fakeAdapter) Stream(_ context.Context, request llm.RequestMessages) (llm.ResponseStream, error) {
@@ -39,6 +40,9 @@ func (fake *fakeAdapter) Stream(_ context.Context, request llm.RequestMessages) 
 }
 
 func (fake *fakeAdapter) ListModels(context.Context) ([]adapter.ModelInfo, error) {
+	if fake.models != nil {
+		return fake.models, nil
+	}
 	return []adapter.ModelInfo{{ID: "gpt-test", Created: 1, OwnedBy: "test"}}, nil
 }
 
@@ -548,6 +552,30 @@ func TestModelManifestEndpoint(t *testing.T) {
 	}
 	body := response.Body.String()
 	for _, want := range []string{`"schema_version":1`, `"swe-2-high"`, `"families"`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("body lacks %q: %s", want, body)
+		}
+	}
+}
+
+// TestModelsExposeReasoningEfforts 验证 /v1/models 会带出基础模型档位字段。
+func TestModelsExposeReasoningEfforts(t *testing.T) {
+	fake := &fakeAdapter{models: []adapter.ModelInfo{{
+		ID:                      "swe-2",
+		OwnedBy:                 "windsurf",
+		SupportsImages:          true,
+		ReasoningEfforts:        []string{"high", "medium"},
+		RequiresReasoningEffort: true,
+	}}}
+	application := New(fake, config.ServerConfig{Listen: ":0"}, nil)
+	request := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	response := httptest.NewRecorder()
+	application.Router().ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d", response.Code)
+	}
+	body := response.Body.String()
+	for _, want := range []string{`"reasoning_efforts":["high","medium"]`, `"requires_reasoning_effort":true`} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("body lacks %q: %s", want, body)
 		}

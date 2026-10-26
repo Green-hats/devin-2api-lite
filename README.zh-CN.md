@@ -126,7 +126,7 @@ OpenAI SDK、Codex CLI、IDE 插件等 OpenAI 兼容客户端，把 Base URL 指
 | --- | --- | --- | --- |
 | `/v1/chat/completions` | POST | SSE | `tools`、`stream_options.include_usage` |
 | `/v1/responses` | POST | typed SSE | `input`、`instructions`、`tools` |
-| `/v1/models` | GET | — | 上游模型目录（带缓存） |
+| `/v1/models` | GET | — | 模型目录投影，见 `catalog.model_mode` |
 | `/v1/models/{model}` | GET | — | 单个模型 |
 | `/v1/model-manifest` | GET | — | 版本化模型目录（schema、families、hash、stale） |
 | `/healthz` | GET | — | 不鉴权、不占并发 |
@@ -149,6 +149,8 @@ OpenAI SDK、Codex CLI、IDE 插件等 OpenAI 兼容客户端，把 Base URL 指
 | `devin.reasoning_tiers` | — | 把「基础模型 + reasoning_effort」映射为实际 uid，如 `swe-2` + `high` → `swe-2-high` |
 | `catalog.snapshot` | — | 模型目录快照路径，相对 `config.yaml`；留空不写快照 |
 | `catalog.refresh` | `5m` | 模型目录刷新间隔 |
+| `catalog.model_mode` | `raw` | `raw`（上游 id）、`openai`（虚拟基础模型）或 `both` |
+| `catalog.auto_tiers` | `false` | 从 family metadata 自动生成基础模型/档位 |
 | `debug.enabled` | `false` | 在 `logs/` 下记录每请求日志 |
 | `auth.api_key` | — | 为空则不校验 |
 
@@ -166,8 +168,9 @@ curl -s localhost:18089/v1/chat/completions \
 
 Responses 用 `reasoning.effort`，Chat 也接受 `thinking: true` 作为 `high` 的简写。
 只有配置过的映射才会生效，网关不会自行拼后缀；客户端传显式档位（如 `swe-2-high`）时保持原样。
-基础 id（如 `swe-2`）是虚拟名称，可能不在 `/v1/models` 中，需要客户端直接填写。
-基础 id 不带档位时直接返回 `400`，并在错误里列出支持的档位。
+`model_mode: openai` 时，基础 id（如 `swe-2`）会出现在 `/v1/models` 中并列出可选档位；
+`raw` 模式下它是虚拟名称，需要客户端直接填写。基础 id 不带档位时直接返回 `400`，
+并在错误里列出支持的档位。
 
 ### 模型目录快照
 
@@ -186,6 +189,11 @@ catalog:
 - `go run ./cmd/devin-2api -config config.yaml -sync-models` 可手动刷新；
 - `families` 只是建议，复制到 `devin.reasoning_tiers` 才生效。
 
+配置 `model_mode: openai` + `auto_tiers: true` 后，`/v1/models` 会显示 `swe-2` 这类虚拟基础模型，
+并带 `reasoning_efforts` / `requires_reasoning_effort`。实际档位 id（`swe-2-high` 等）不再出现在列表中，
+但客户端直接传仍然可用。没有 family metadata 的模型和 fast/lightning 变体保持原样。被隐藏的档位 id 仍可用于请求，
+但不会再出现在 `/v1/models` 或 `/v1/models/{id}` 中。
+
 未知 YAML 字段会被拒绝。所有字段都可用环境变量覆盖（`SERVER_LISTEN`、`DEVIN_TOKEN`、
 `DEVIN_STREAM_IDLE_TIMEOUT`、`AUTH_API_KEY` 等），见 `config.example.yaml`。
 调试日志包含 HTTP 请求、中间请求、上游帧、事件流、响应以及首个失败阶段；即使关闭 debug，
@@ -199,7 +207,7 @@ catalog:
 | 上游绑定 | protoc 生成 Connect 绑定 | 手写 wire + Connect |
 | 构建前置 | `task generate` | 无 |
 | 依赖 | 7 个 | 1 个（`yaml.v3`） |
-| 生产代码 | 8,851 行 | 7,198 行 |
+| 生产代码 | 8,851 行 | 7,414 行 |
 
 分层边界没有变化；要加回 Anthropic 或 WebSocket，只需补一个编解码包。
 

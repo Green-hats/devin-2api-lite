@@ -48,6 +48,10 @@ type ModelInfo struct {
 	FastMode bool `json:"fast_mode,omitempty"`
 	// DefaultInFamily 表示上游将其标记为 family 默认模型。
 	DefaultInFamily bool `json:"default_in_family,omitempty"`
+	// ReasoningEfforts 是虚拟基础模型支持的推理档位；实际模型为空。
+	ReasoningEfforts []string `json:"reasoning_efforts,omitempty"`
+	// RequiresReasoningEffort 表示调用该模型时必须显式传档位。
+	RequiresReasoningEffort bool `json:"requires_reasoning_effort,omitempty"`
 }
 
 // Manifest 是自动生成模型目录的版本化契约。

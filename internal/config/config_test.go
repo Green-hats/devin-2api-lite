@@ -228,3 +228,18 @@ func TestExampleConfigLoads(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// TestValidateCatalogModelMode 验证展示模式默认值与非法值。
+func TestValidateCatalogModelMode(t *testing.T) {
+	var loaded Config
+	if err := loaded.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Catalog.ModelMode != "raw" {
+		t.Fatalf("ModelMode = %q", loaded.Catalog.ModelMode)
+	}
+	loaded.Catalog.ModelMode = "weird"
+	if err := loaded.Validate(); err == nil {
+		t.Fatal("invalid model mode should be rejected")
+	}
+}

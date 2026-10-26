@@ -57,6 +57,8 @@ func newProviderAdapter(serviceConfig config.Config, snapshotPath string, logger
 		ReasoningTiers: serviceConfig.Devin.ReasoningTiers,
 		SnapshotPath:   snapshotPath,
 		CatalogRefresh: serviceConfig.Catalog.RefreshInterval,
+		ModelMode:      serviceConfig.Catalog.ModelMode,
+		AutoTiers:      serviceConfig.Catalog.AutoTiers,
 		Logger:         logger,
 	})
 }
@@ -165,7 +167,7 @@ func runSyncModels(serviceConfig *config.Config, configPath string, out io.Write
 	}
 	fmt.Fprintf(out, "snapshot    %s\n", snapshotPath)
 	fmt.Fprintf(out, "source      %s\n", manifest.Source)
-	fmt.Fprintf(out, "models      %d\n", len(models))
+	fmt.Fprintf(out, "models      %d (visible %d)\n", len(manifest.Models), len(models))
 	fmt.Fprintf(out, "families    %d\n", len(manifest.Families))
 	fmt.Fprintf(out, "hash        %s\n", manifest.CatalogHash)
 	return nil

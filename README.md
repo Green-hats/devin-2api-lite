@@ -128,7 +128,7 @@ Any OpenAI-compatible client (OpenAI SDK, Codex CLI, IDE plugins) can point its 
 | --- | --- | --- | --- |
 | `/v1/chat/completions` | POST | SSE | `tools`, `stream_options.include_usage` |
 | `/v1/responses` | POST | typed SSE | `input`, `instructions`, `tools` |
-| `/v1/models` | GET | — | Cached upstream catalog |
+| `/v1/models` | GET | — | Catalog projection; see `catalog.model_mode` |
 | `/v1/models/{model}` | GET | — | Single model |
 | `/v1/model-manifest` | GET | — | Versioned catalog manifest (schema, families, hash, stale) |
 | `/healthz` | GET | — | No auth, no concurrency limit |
@@ -151,6 +151,8 @@ configured, 504 when the upstream stream is idle past `stream_idle_timeout`, 413
 | `devin.reasoning_tiers` | — | Maps a base id + `reasoning_effort` to an actual uid, e.g. `swe-2` + `high` → `swe-2-high` |
 | `catalog.snapshot` | — | Model catalog snapshot path, relative to `config.yaml`; empty disables |
 | `catalog.refresh` | `5m` | Catalog refresh interval |
+| `catalog.model_mode` | `raw` | `raw` (upstream ids), `openai` (virtual base models), or `both` |
+| `catalog.auto_tiers` | `false` | Derives base models/efforts from family metadata |
 | `debug.enabled` | `false` | Writes per-request logs under `logs/` |
 | `auth.api_key` | — | Empty disables auth |
 
@@ -168,8 +170,8 @@ curl -s localhost:18089/v1/chat/completions \
 
 `reasoning.effort` works the same way for Responses; `thinking: true` is accepted as shorthand
 for `high` in Chat Completions. Only configured mappings apply — the gateway never invents
-suffixes, and an explicit tier id such as `swe-2-high` is left untouched. Base ids such as
-`swe-2` are virtual and may not appear in `/v1/models`; clients must send them explicitly.
+suffixes, and an explicit tier id such as `swe-2-high` is left untouched. With `model_mode: openai`, base ids such as `swe-2` appear in `/v1/models` together with
+their supported efforts; in `raw` mode they are virtual and clients must send them explicitly.
 If a base id is sent without an effort, the request is rejected with `400` and the supported
 efforts are listed.
 
@@ -191,6 +193,12 @@ catalog:
 - `go run ./cmd/devin-2api -config config.yaml -sync-models` refreshes on demand;
 - `families` are suggestions only; copy an entry into `devin.reasoning_tiers` to activate it.
 
+With `model_mode: openai` and `auto_tiers: true`, `/v1/models` exposes virtual base models
+such as `swe-2` with `reasoning_efforts` and `requires_reasoning_effort`. The actual tier ids
+(`swe-2-high`, ...) are hidden from the list but still accepted if a client sends them.
+Models without family metadata and fast/lightning variants stay visible as-is. Hidden tier ids
+remain valid in requests, but `/v1/models` and `/v1/models/{id}` no longer list them.
+
 Unknown YAML fields are rejected. Every field can be overridden by an environment variable
 (`SERVER_LISTEN`, `DEVIN_TOKEN`, `DEVIN_STREAM_IDLE_TIMEOUT`, `AUTH_API_KEY`, ...); see `config.example.yaml`.
 Debug logs capture the HTTP request, intermediate request, upstream frames, events and response, plus the
@@ -204,7 +212,7 @@ first failing stage. Failures are also logged to stderr with a request ID, even 
 | Upstream bindings | Generated Connect bindings | Hand-written wire + Connect |
 | Build step | `task generate` | None |
 | Dependencies | 7 | 1 (`yaml.v3`) |
-| Production LOC | 8,851 | 7,198 |
+| Production LOC | 8,851 | 7,414 |
 
 The layer boundaries are unchanged; adding Anthropic or WebSocket back means adding one
 codec package.
