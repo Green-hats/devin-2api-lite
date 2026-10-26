@@ -170,6 +170,8 @@ curl -s localhost:18089/v1/chat/completions \
 for `high` in Chat Completions. Only configured mappings apply — the gateway never invents
 suffixes, and an explicit tier id such as `swe-2-high` is left untouched. Base ids such as
 `swe-2` are virtual and may not appear in `/v1/models`; clients must send them explicitly.
+If a base id is sent without an effort, the request is rejected with `400` and the supported
+efforts are listed.
 
 ### Model catalog snapshot
 
@@ -202,7 +204,7 @@ first failing stage. Failures are also logged to stderr with a request ID, even 
 | Upstream bindings | Generated Connect bindings | Hand-written wire + Connect |
 | Build step | `task generate` | None |
 | Dependencies | 7 | 1 (`yaml.v3`) |
-| Production LOC | 8,851 | 7,183 |
+| Production LOC | 8,851 | 7,198 |
 
 The layer boundaries are unchanged; adding Anthropic or WebSocket back means adding one
 codec package.

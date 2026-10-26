@@ -4,6 +4,7 @@ package devin
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -84,22 +85,36 @@ func modelLikelySupportsImages(model string) bool {
 }
 
 // resolveReasoningModel 在配置了档位表时把基础模型改写成实际 uid。
-// 未配置的模型保持原样；配置了基础模型但缺少该档位时返回 400 类错误。
+// 未配置的模型保持原样；基础模型缺少 effort 或档位不存在时返回 400 类错误。
 func resolveReasoningModel(model, effort string, tiers map[string]map[string]string) (string, error) {
 	model = strings.TrimSpace(model)
 	effort = strings.ToLower(strings.TrimSpace(effort))
-	if effort == "" || len(tiers) == 0 {
+	if len(tiers) == 0 {
 		return model, nil
 	}
 	byEffort, ok := tiers[model]
 	if !ok {
 		return model, nil
 	}
+	supported := supportedEfforts(byEffort)
+	if effort == "" {
+		return "", fmt.Errorf("invalid_argument: model %q requires reasoning_effort (supported: %s)", model, supported)
+	}
 	target, ok := byEffort[effort]
 	if !ok {
-		return "", fmt.Errorf("invalid_argument: model %q has no reasoning tier for effort %q", model, effort)
+		return "", fmt.Errorf("invalid_argument: model %q does not support reasoning_effort %q (supported: %s)", model, effort, supported)
 	}
 	return target, nil
+}
+
+// supportedEfforts 返回排序后的档位列表，保证错误信息稳定。
+func supportedEfforts(tiers map[string]string) string {
+	efforts := make([]string, 0, len(tiers))
+	for effort := range tiers {
+		efforts = append(efforts, effort)
+	}
+	sort.Strings(efforts)
+	return strings.Join(efforts, ", ")
 }
 
 // ListModels 通过 GetCascadeModelConfigs 拉取可用模型目录，结果带 TTL 缓存。

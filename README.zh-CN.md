@@ -167,6 +167,7 @@ curl -s localhost:18089/v1/chat/completions \
 Responses 用 `reasoning.effort`，Chat 也接受 `thinking: true` 作为 `high` 的简写。
 只有配置过的映射才会生效，网关不会自行拼后缀；客户端传显式档位（如 `swe-2-high`）时保持原样。
 基础 id（如 `swe-2`）是虚拟名称，可能不在 `/v1/models` 中，需要客户端直接填写。
+基础 id 不带档位时直接返回 `400`，并在错误里列出支持的档位。
 
 ### 模型目录快照
 
@@ -198,7 +199,7 @@ catalog:
 | 上游绑定 | protoc 生成 Connect 绑定 | 手写 wire + Connect |
 | 构建前置 | `task generate` | 无 |
 | 依赖 | 7 个 | 1 个（`yaml.v3`） |
-| 生产代码 | 8,851 行 | 7,183 行 |
+| 生产代码 | 8,851 行 | 7,198 行 |
 
 分层边界没有变化；要加回 Anthropic 或 WebSocket，只需补一个编解码包。
 

@@ -346,4 +346,19 @@ func TestReasoningEffortRewritesModel(t *testing.T) {
 	if !bytes.Contains(received, []byte("swe-2-high")) {
 		t.Fatalf("upstream request does not contain rewritten model: %x", received)
 	}
+
+	// 基础模型不传档位时必须在本地拒绝，而不是发给上游。
+	missing, err := http.Post(gateway.URL+"/v1/chat/completions", "application/json",
+		strings.NewReader(`{"model":"swe-2","messages":[{"role":"user","content":"hi"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer missing.Body.Close()
+	if missing.StatusCode != http.StatusBadRequest {
+		t.Fatalf("missing effort status = %d", missing.StatusCode)
+	}
+	raw, _ := io.ReadAll(missing.Body)
+	if !bytes.Contains(raw, []byte("requires reasoning_effort")) {
+		t.Fatalf("missing effort body = %s", raw)
+	}
 }

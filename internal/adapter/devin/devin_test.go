@@ -613,7 +613,6 @@ func TestResolveReasoningModel(t *testing.T) {
 		{"mapped", "swe-2", "high", "swe-2-high"},
 		{"case-insensitive", "swe-2", " HIGH ", "swe-2-high"},
 		{"explicit-tier", "swe-2-medium", "high", "swe-2-medium"},
-		{"no-effort", "swe-2", "", "swe-2"},
 		{"unconfigured-model", "glm-5-2", "high", "glm-5-2"},
 	}
 	for _, testCase := range cases {
@@ -627,7 +626,10 @@ func TestResolveReasoningModel(t *testing.T) {
 			}
 		})
 	}
-	if _, err := resolveReasoningModel("swe-2", "max", tiers); err == nil {
-		t.Fatal("missing tier should return an error")
+	if _, err := resolveReasoningModel("swe-2", "", tiers); err == nil || !strings.Contains(err.Error(), "requires reasoning_effort") {
+		t.Fatalf("missing effort error = %v", err)
+	}
+	if _, err := resolveReasoningModel("swe-2", "max", tiers); err == nil || !strings.Contains(err.Error(), "supported: high, medium") {
+		t.Fatalf("unsupported effort error = %v", err)
 	}
 }
