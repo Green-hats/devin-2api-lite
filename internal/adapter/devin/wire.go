@@ -194,21 +194,6 @@ func (r *reader) i64() (int64, bool) {
 	return int64(value), ok
 }
 
-// f64 读取双精度字段。
-func (r *reader) f64() (float64, bool) {
-	if r.wire != wireFixed64 {
-		r.skip()
-		return 0, false
-	}
-	if len(r.data)-r.pos < 8 {
-		r.fail("truncated protobuf fixed64")
-		return 0, false
-	}
-	value := math.Float64frombits(binary.LittleEndian.Uint64(r.data[r.pos:]))
-	r.pos += 8
-	return value, true
-}
-
 // skip 跳过当前字段值，保证未知字段不会中断解析。
 func (r *reader) skip() {
 	switch r.wire {

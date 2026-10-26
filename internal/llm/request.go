@@ -62,8 +62,6 @@ type Content interface {
 type TextContent struct {
 	// Text 是向用户展示或作为上下文重放的文字。
 	Text string
-	// TextSignature 是供应商返回的文字签名或序列化签名，重放时应原样保留。
-	TextSignature string
 }
 
 // ContentType 返回文字内容类型。
@@ -123,8 +121,6 @@ type ToolCall struct {
 	Name string
 	// Arguments 是模型增量拼接完成后的 JSON 参数对象。
 	Arguments json.RawMessage
-	// ThoughtSignature 是部分供应商附加到工具调用上的思考签名，重放时应原样保留。
-	ThoughtSignature string
 }
 
 // ContentType 返回工具调用内容类型。
@@ -168,12 +164,6 @@ type ToolResultMessage struct {
 	ToolName string
 	// Content 是返回给模型的文字和图片内容块。
 	Content []Content
-	// Details 是仅供应用层保存和展示、不一定发送给模型的结构化详情。
-	Details json.RawMessage
-	// Usage 是执行工具本身产生的可选用量，不计入助手响应主用量。
-	Usage *Usage
-	// AddedToolNames 是本次结果触发延迟加载后新增的工具名称。
-	AddedToolNames []string
 	// IsError 表示工具执行是否失败。
 	IsError bool
 	// TimestampMS 是创建消息时的 Unix 毫秒时间戳。
@@ -193,12 +183,6 @@ func (message ToolResultMessage) Validate() error {
 	}
 	if err := validateContent(message.Content, ContentTypeText, ContentTypeImage); err != nil {
 		return err
-	}
-	if len(message.Details) > 0 && !json.Valid(message.Details) {
-		return errors.New("tool result details must be valid JSON")
-	}
-	if message.Usage != nil {
-		return message.Usage.Validate()
 	}
 	return nil
 }

@@ -9,8 +9,11 @@ import (
 	"github.com/Green-hats/devin-2api-lite/internal/llm"
 )
 
-// protocolEncoder 抽象流式与非流式协议编码。
-type protocolEncoder interface {
+// protocol 把一个协议的请求解码与响应编码绑定在同一个值上，
+// 避免调用方把 A 协议的解码器和 B 协议的编码器配在一起。
+type protocol interface {
+	// decode 把协议 JSON 解码为供应商无关的请求上下文。
+	decode(data []byte) (llm.RequestMessages, protocolOptions, error)
 	// NewStreamEncoder 创建与本次 HTTP 请求绑定的流式编码器。
 	NewStreamEncoder(model string, includeUsage bool) streamEncoder
 	// EncodeFinal 把最终助手消息编码为完整的非流式 JSON 响应体。
@@ -38,6 +41,17 @@ type protocolOptions struct {
 // responsesProtocol 实现 OpenAI Responses API 协议。
 type responsesProtocol struct{}
 
+func (p responsesProtocol) decode(data []byte) (llm.RequestMessages, protocolOptions, error) {
+	adapted, err := responses.DecodeRequest(data)
+	if err != nil {
+		return llm.RequestMessages{}, protocolOptions{}, err
+	}
+	return adapted.Context, protocolOptions{
+		Stream:       adapted.Options.Stream,
+		IncludeUsage: false,
+	}, nil
+}
+
 func (p responsesProtocol) NewStreamEncoder(model string, _ bool) streamEncoder {
 	return &responsesStreamAdapter{responses.NewStreamEncoder(model)}
 }
@@ -52,6 +66,17 @@ func (p responsesProtocol) SSEFormat(name string, data []byte) []byte {
 
 // chatProtocol 实现 OpenAI Chat Completions 协议。
 type chatProtocol struct{}
+
+func (p chatProtocol) decode(data []byte) (llm.RequestMessages, protocolOptions, error) {
+	adapted, err := chat.DecodeRequest(data)
+	if err != nil {
+		return llm.RequestMessages{}, protocolOptions{}, err
+	}
+	return adapted.Context, protocolOptions{
+		Stream:       adapted.Options.Stream,
+		IncludeUsage: adapted.Options.IncludeUsage,
+	}, nil
+}
 
 func (p chatProtocol) NewStreamEncoder(model string, includeUsage bool) streamEncoder {
 	return &chatStreamAdapter{chat.NewStreamEncoder(model, includeUsage)}
@@ -95,29 +120,4 @@ func (a *chatStreamAdapter) Encode(event llm.ResponseEvent) ([]eventWire, error)
 		out = append(out, eventWire{Name: e.Name, Data: e.Data})
 	}
 	return out, nil
-}
-
-// decodeRequest 把具体协议的解码结果统一为中间请求和公共选项。
-type decodeRequestFunc func([]byte) (llm.RequestMessages, protocolOptions, error)
-
-func decodeResponsesRequest(data []byte) (llm.RequestMessages, protocolOptions, error) {
-	adapted, err := responses.DecodeRequest(data)
-	if err != nil {
-		return llm.RequestMessages{}, protocolOptions{}, err
-	}
-	return adapted.Context, protocolOptions{
-		Stream:       adapted.Options.Stream,
-		IncludeUsage: false,
-	}, nil
-}
-
-func decodeChatRequest(data []byte) (llm.RequestMessages, protocolOptions, error) {
-	adapted, err := chat.DecodeRequest(data)
-	if err != nil {
-		return llm.RequestMessages{}, protocolOptions{}, err
-	}
-	return adapted.Context, protocolOptions{
-		Stream:       adapted.Options.Stream,
-		IncludeUsage: adapted.Options.IncludeUsage,
-	}, nil
 }

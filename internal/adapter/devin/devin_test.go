@@ -17,10 +17,9 @@ import (
 
 // parsedField 是测试用的一层 wire 字段。
 type parsedField struct {
-	wire   int
-	value  uint64
-	raw    []byte
-	number float64
+	wire  int
+	value uint64
+	raw   []byte
 }
 
 // parseFields 把一段 wire 数据解析为「字段号 → 字段列表」，用于断言编码结果。
@@ -39,8 +38,6 @@ func parseFields(t *testing.T, data []byte) map[int][]parsedField {
 			field.value, _ = r.u64()
 		case wireBytes:
 			field.raw, _ = r.bytes()
-		case wireFixed64:
-			field.number, _ = r.f64()
 		default:
 			r.skip()
 		}
