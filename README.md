@@ -138,71 +138,12 @@ configured, 504 when the upstream stream is idle past `stream_idle_timeout`, 413
 
 ## Configuration
 
-| Field | Default | Notes |
-| --- | --- | --- |
-| `server.listen` | `:18089` | HTTP listen address |
-| `server.max_concurrency` | `1024` | Concurrent `/v1/*` requests |
-| `devin.base_url` | — | Devin Connect URL, e.g. `https://server.codeium.com` |
-| `devin.token` | — | Session token; `/v1/*` is unavailable until set |
-| `devin.model` | — | Default uid; a request's `model` wins |
-| `devin.proxy` | — | Optional HTTP/HTTPS proxy |
-| `devin.force_http1` | `true` | Avoids the upstream's HTTP/2 multiplexing bottleneck |
-| `devin.stream_idle_timeout` | `5m` | Returns 504 if no upstream frame arrives in time; `0` disables |
-| `devin.reasoning_tiers` | — | Maps a base id + `reasoning_effort` to an actual uid, e.g. `swe-2` + `high` → `swe-2-high` |
-| `catalog.snapshot` | — | Model catalog snapshot path, relative to `config.yaml`; empty disables |
-| `catalog.refresh` | `5m` | Catalog refresh interval |
-| `catalog.model_mode` | `raw` | `raw` (upstream ids), `openai` (virtual base models), or `both` |
-| `catalog.auto_tiers` | `false` | Derives base models/efforts from family metadata |
-| `debug.enabled` | `false` | Writes per-request logs under `logs/` |
-| `auth.api_key` | — | Empty disables auth |
+Copy [`config.example.yaml`](config.example.yaml) to `config.yaml` and set `devin.token`;
+base URL and model are already filled in the example. The full reference — all fields, environment overrides, reasoning
+tiers, catalog snapshots and model modes — is in [docs/configuration.md](docs/configuration.md).
 
-### Reasoning tiers
-
-Some Devin models encode the reasoning level in the uid (`swe-2-medium`, `swe-2-high`).
-With `devin.reasoning_tiers`, clients can send the base id plus an effort:
-
-```bash
-curl -s localhost:18089/v1/chat/completions \
-  -H 'Content-Type: application/json' \
-  -d '{"model":"swe-2","reasoning_effort":"high","messages":[{"role":"user","content":"hi"}]}'
-# the upstream request uses chat_model_uid=swe-2-high
-```
-
-`reasoning.effort` works the same way for Responses; `thinking: true` is accepted as shorthand
-for `high` in Chat Completions. Only configured mappings apply — the gateway never invents
-suffixes, and an explicit tier id such as `swe-2-high` is left untouched. With `model_mode: openai`, base ids such as `swe-2` appear in `/v1/models` together with
-their supported efforts; in `raw` mode they are virtual and clients must send them explicitly.
-If a base id is sent without an effort, the request is rejected with `400` and the supported
-efforts are listed.
-
-### Model catalog snapshot
-
-With `catalog.snapshot` set, the gateway writes the upstream catalog to a machine-owned JSON file
-and falls back to it when the upstream is unavailable:
-
-```yaml
-catalog:
-  snapshot: "state/models.json"
-  refresh: "5m"
-```
-
-- the file is written atomically (`0600`) and is **not** a config file;
-- on upstream failure the last snapshot is served and marked `stale`;
-- `/v1/model-manifest` exposes `schema_version`, `generated_at`, `catalog_hash`, `stale`,
-  full model metadata and `families` suggestions;
-- `go run ./cmd/devin-2api -config config.yaml -sync-models` refreshes on demand;
-- `families` are suggestions only; copy an entry into `devin.reasoning_tiers` to activate it.
-
-With `model_mode: openai` and `auto_tiers: true`, `/v1/models` exposes virtual base models
-such as `swe-2` with `reasoning_efforts` and `requires_reasoning_effort`. The actual tier ids
-(`swe-2-high`, ...) are hidden from the list but still accepted if a client sends them.
-Models without family metadata and fast/lightning variants stay visible as-is. Hidden tier ids
-remain valid in requests, but `/v1/models` and `/v1/models/{id}` no longer list them.
-
-Unknown YAML fields are rejected. Every field can be overridden by an environment variable
-(`SERVER_LISTEN`, `DEVIN_TOKEN`, `DEVIN_STREAM_IDLE_TIMEOUT`, `AUTH_API_KEY`, ...); see `config.example.yaml`.
-Debug logs capture the HTTP request, intermediate request, upstream frames, events and response, plus the
-first failing stage. Failures are also logged to stderr with a request ID, even when `debug.enabled` is off.
+Unknown YAML fields are rejected. `-check` validates config and upstream; `-sync-models`
+refreshes the catalog snapshot.
 
 ## Differences from the original
 

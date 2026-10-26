@@ -136,68 +136,11 @@ OpenAI SDK、Codex CLI、IDE 插件等 OpenAI 兼容客户端，把 Base URL 指
 
 ## 配置
 
-| 字段 | 默认值 | 说明 |
-| --- | --- | --- |
-| `server.listen` | `:18089` | HTTP 监听地址 |
-| `server.max_concurrency` | `1024` | `/v1/*` 并发上限 |
-| `devin.base_url` | — | Devin Connect 地址，如 `https://server.codeium.com` |
-| `devin.token` | — | 会话 token；未设置时 `/v1/*` 不可用 |
-| `devin.model` | — | 默认模型；请求里的 `model` 优先 |
-| `devin.proxy` | — | 可选 HTTP/HTTPS 代理 |
-| `devin.force_http1` | `true` | 规避上游 HTTP/2 多路复用瓶颈 |
-| `devin.stream_idle_timeout` | `5m` | 上游超时无帧则返回 504；`0` 表示不限制 |
-| `devin.reasoning_tiers` | — | 把「基础模型 + reasoning_effort」映射为实际 uid，如 `swe-2` + `high` → `swe-2-high` |
-| `catalog.snapshot` | — | 模型目录快照路径，相对 `config.yaml`；留空不写快照 |
-| `catalog.refresh` | `5m` | 模型目录刷新间隔 |
-| `catalog.model_mode` | `raw` | `raw`（上游 id）、`openai`（虚拟基础模型）或 `both` |
-| `catalog.auto_tiers` | `false` | 从 family metadata 自动生成基础模型/档位 |
-| `debug.enabled` | `false` | 在 `logs/` 下记录每请求日志 |
-| `auth.api_key` | — | 为空则不校验 |
+把 [`config.example.yaml`](config.example.yaml) 复制为 `config.yaml`，填入 `devin.token`；
+`base_url` 和 `model` 示例里已经填好。完整参考——所有字段、环境变量覆盖、推理档位、目录快照和展示模式——见
+[docs/configuration.zh-CN.md](docs/configuration.zh-CN.md)。
 
-### 推理档位映射
-
-Devin 的部分模型把推理档位写在 uid 里（`swe-2-medium`、`swe-2-high`）。
-配置 `devin.reasoning_tiers` 后，客户端可以传基础 id 加档位：
-
-```bash
-curl -s localhost:18089/v1/chat/completions \
-  -H 'Content-Type: application/json' \
-  -d '{"model":"swe-2","reasoning_effort":"high","messages":[{"role":"user","content":"hi"}]}'
-# 实际发给上游的 chat_model_uid 是 swe-2-high
-```
-
-Responses 用 `reasoning.effort`，Chat 也接受 `thinking: true` 作为 `high` 的简写。
-只有配置过的映射才会生效，网关不会自行拼后缀；客户端传显式档位（如 `swe-2-high`）时保持原样。
-`model_mode: openai` 时，基础 id（如 `swe-2`）会出现在 `/v1/models` 中并列出可选档位；
-`raw` 模式下它是虚拟名称，需要客户端直接填写。基础 id 不带档位时直接返回 `400`，
-并在错误里列出支持的档位。
-
-### 模型目录快照
-
-配置 `catalog.snapshot` 后，网关会把上游目录写成机器维护的 JSON，并在上游不可用时回退：
-
-```yaml
-catalog:
-  snapshot: "state/models.json"
-  refresh: "5m"
-```
-
-- 文件原子写入（`0600`），不是配置文件的替代品；
-- 上游失败时使用上次快照，并标记 `stale`；
-- `/v1/model-manifest` 返回 `schema_version`、`generated_at`、`catalog_hash`、`stale`、
-  完整模型元数据和 `families` 建议；
-- `go run ./cmd/devin-2api -config config.yaml -sync-models` 可手动刷新；
-- `families` 只是建议，复制到 `devin.reasoning_tiers` 才生效。
-
-配置 `model_mode: openai` + `auto_tiers: true` 后，`/v1/models` 会显示 `swe-2` 这类虚拟基础模型，
-并带 `reasoning_efforts` / `requires_reasoning_effort`。实际档位 id（`swe-2-high` 等）不再出现在列表中，
-但客户端直接传仍然可用。没有 family metadata 的模型和 fast/lightning 变体保持原样。被隐藏的档位 id 仍可用于请求，
-但不会再出现在 `/v1/models` 或 `/v1/models/{id}` 中。
-
-未知 YAML 字段会被拒绝。所有字段都可用环境变量覆盖（`SERVER_LISTEN`、`DEVIN_TOKEN`、
-`DEVIN_STREAM_IDLE_TIMEOUT`、`AUTH_API_KEY` 等），见 `config.example.yaml`。
-调试日志包含 HTTP 请求、中间请求、上游帧、事件流、响应以及首个失败阶段；即使关闭 debug，
-失败也会带请求 ID 输出到 stderr。
+未知 YAML 字段会被拒绝。`-check` 校验配置和上游；`-sync-models` 刷新目录快照。
 
 ## 与原版的区别
 
