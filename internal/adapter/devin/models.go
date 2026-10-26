@@ -120,18 +120,40 @@ func supportedEfforts(tiers map[string]string) string {
 // ListModels 通过 GetCascadeModelConfigs 拉取可用模型目录，结果带 TTL 缓存。
 // 上游失败时回退到本地快照，并在 manifest 中标记 stale。
 func (a *Adapter) ListModels(ctx context.Context) ([]adapter.ModelInfo, error) {
-	a.modelsMu.RLock()
-	cacheReady := a.models != nil && time.Now().Before(a.modelsExpiry)
-	if cacheReady && a.config.AutoTiers && len(a.catalogFamilies) == 0 {
-		cacheReady = false
+	if cached, ok := a.cachedModels(); ok {
+		return cached, nil
 	}
-	if cacheReady {
-		cached := cloneModelInfo(a.models)
-		a.modelsMu.RUnlock()
-		return a.visibleModels(cached), nil
+	models, err := a.fetchCatalog(ctx)
+	if err != nil {
+		if fallback, ok := a.loadSnapshotFallback(err); ok {
+			return a.visibleModels(fallback), nil
+		}
+		return nil, err
 	}
-	a.modelsMu.RUnlock()
+	families := suggestFamilies(models)
+	generatedAt := time.Now().UTC()
+	hash := catalogHash(models, families)
+	return a.applyCatalog(models, families, generatedAt, hash), nil
+}
 
+// cachedModels 返回 TTL 内缓存的可见模型。
+func (a *Adapter) cachedModels() ([]adapter.ModelInfo, bool) {
+	a.modelsMu.RLock()
+	ready := a.models != nil && time.Now().Before(a.modelsExpiry)
+	if ready && a.config.AutoTiers && len(a.catalogFamilies) == 0 {
+		ready = false
+	}
+	if !ready {
+		a.modelsMu.RUnlock()
+		return nil, false
+	}
+	cached := cloneModelInfo(a.models)
+	a.modelsMu.RUnlock()
+	return a.visibleModels(cached), true
+}
+
+// fetchCatalog 调用上游并把响应转换为模型条目。
+func (a *Adapter) fetchCatalog(ctx context.Context) ([]adapter.ModelInfo, error) {
 	payload, err := a.unaryClient.Unary(ctx, procedureGetCascadeModelConfigs, (&modelConfigsRequest{
 		metadata: &metadata{
 			ideName:          clientName,
@@ -144,16 +166,10 @@ func (a *Adapter) ListModels(ctx context.Context) ([]adapter.ModelInfo, error) {
 		},
 	}).encode())
 	if err != nil {
-		if models, ok := a.loadSnapshotFallback(err); ok {
-			return a.visibleModels(models), nil
-		}
 		return nil, fmt.Errorf("call GetCascadeModelConfigs: %w", err)
 	}
 	response, err := decodeModelConfigs(payload)
 	if err != nil {
-		if models, ok := a.loadSnapshotFallback(err); ok {
-			return a.visibleModels(models), nil
-		}
 		return nil, fmt.Errorf("decode Devin model configs: %w", err)
 	}
 
@@ -201,14 +217,11 @@ func (a *Adapter) ListModels(ctx context.Context) ([]adapter.ModelInfo, error) {
 			})
 		}
 	}
+	return models, nil
+}
 
-	families := suggestFamilies(models)
-	effective := cloneTiers(a.config.ReasoningTiers)
-	if a.config.AutoTiers {
-		effective = mergeTiers(effective, families)
-	}
-	generatedAt := time.Now().UTC()
-	hash := catalogHash(models, families)
+// applyCatalog 更新缓存和图片能力，必要时发布快照，并返回可见投影。
+func (a *Adapter) applyCatalog(models []adapter.ModelInfo, families map[string]map[string]string, generatedAt time.Time, hash string) []adapter.ModelInfo {
 	a.recordImageSupport(models)
 
 	a.modelsMu.Lock()
@@ -216,7 +229,7 @@ func (a *Adapter) ListModels(ctx context.Context) ([]adapter.ModelInfo, error) {
 	if a.models != nil && time.Now().Before(a.modelsExpiry) {
 		cached := cloneModelInfo(a.models)
 		a.modelsMu.Unlock()
-		return a.visibleModels(cached), nil
+		return a.visibleModels(cached)
 	}
 	previousHash := a.catalogHash
 	a.models = models
@@ -229,16 +242,21 @@ func (a *Adapter) ListModels(ctx context.Context) ([]adapter.ModelInfo, error) {
 	a.modelsMu.Unlock()
 
 	if previousHash != hash {
-		a.persistSnapshot(catalogSnapshot{
-			SchemaVersion: catalogSnapshotSchemaVersion,
-			GeneratedAt:   generatedAt,
-			Source:        a.config.BaseURL,
-			CatalogHash:   hash,
-			Models:        models,
-			Families:      families,
-		})
+		a.publishSnapshot(models, families, generatedAt, hash)
 	}
-	return projectModels(models, effective, a.config.ModelMode), nil
+	return a.visibleModels(models)
+}
+
+// publishSnapshot 把当前目录写入本地快照；失败只记录日志。
+func (a *Adapter) publishSnapshot(models []adapter.ModelInfo, families map[string]map[string]string, generatedAt time.Time, hash string) {
+	a.persistSnapshot(catalogSnapshot{
+		SchemaVersion: catalogSnapshotSchemaVersion,
+		GeneratedAt:   generatedAt,
+		Source:        a.config.BaseURL,
+		CatalogHash:   hash,
+		Models:        models,
+		Families:      families,
+	})
 }
 
 // recordImageSupport 把模型目录中的图片能力写入本地缓存。
