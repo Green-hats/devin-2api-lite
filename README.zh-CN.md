@@ -1,6 +1,6 @@
-<div align="center">
+<div align="right"><sub><a href="README.md">English</a> | <b>中文</b></sub></div>
 
-<sub><a href="README.md">English</a> | <b>中文</b></sub>
+<div align="center">
 
 <img src="docs/banner.png" alt="devin-2api lite" width="100%">
 
