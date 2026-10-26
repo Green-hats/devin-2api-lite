@@ -10,7 +10,7 @@ import (
 // TestLoadRejectsUnknownFields 验证未知配置字段会被严格拒绝。
 func TestLoadRejectsUnknownFields(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
-	if err := os.WriteFile(path, []byte("server:\n  listen: ':8080'\n  typo: true\n"), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte("server:\n  listen: ':18089'\n  typo: true\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := Load(path); err == nil {
@@ -75,5 +75,22 @@ func TestLoadEnablesDebugLoggingExplicitly(t *testing.T) {
 	}
 	if !loaded.Debug.Enabled {
 		t.Fatal("Debug.Enabled = false, want explicitly enabled")
+	}
+}
+
+// TestValidateUsesDefaultListen 的测试动机是未配置监听地址时仍有一个不常用的默认端口可用。
+func TestValidateUsesDefaultListen(t *testing.T) {
+	var loaded Config
+	if err := loaded.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Server.Listen != ":18089" {
+		t.Fatalf("Listen = %q, want :18089", loaded.Server.Listen)
+	}
+	if loaded.Server.MaxConcurrency != 1024 {
+		t.Fatalf("MaxConcurrency = %d, want 1024", loaded.Server.MaxConcurrency)
+	}
+	if loaded.Devin.ForceHTTP1 == nil || !*loaded.Devin.ForceHTTP1 {
+		t.Fatal("ForceHTTP1 default = false, want true")
 	}
 }

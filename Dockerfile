@@ -20,6 +20,6 @@ RUN apk add --no-cache ca-certificates
 WORKDIR /app
 COPY --from=builder /out/devin-2api /app/devin-2api
 
-EXPOSE 8080
+EXPOSE 18089
 
 ENTRYPOINT ["/app/devin-2api"]

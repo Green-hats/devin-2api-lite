@@ -4,12 +4,14 @@
 package config
 
 import (
-	"errors"
 	"fmt"
 	"os"
 
 	"gopkg.in/yaml.v3"
 )
+
+// defaultListen 是未配置 server.listen 时使用的监听地址。
+const defaultListen = ":18089"
 
 // Config 保存服务启动所需的全部配置；服务运行期间不会热更新。
 type Config struct {
@@ -79,10 +81,10 @@ func Load(path string) (Config, error) {
 	return config, nil
 }
 
-// Validate 检查配置中的必填项，并设置默认值。
+// Validate 检查配置并填充默认值。
 func (config *Config) Validate() error {
 	if config.Server.Listen == "" {
-		return errors.New("server.listen is required")
+		config.Server.Listen = defaultListen
 	}
 	if config.Server.MaxConcurrency <= 0 {
 		config.Server.MaxConcurrency = 1024

@@ -25,10 +25,10 @@ func (server *fakeServer) Close() error { return nil }
 // TestListenURL verifies listen address descriptions used in the startup log.
 func TestListenURL(t *testing.T) {
 	cases := map[string]string{
-		":8080":          ":8080 (http://localhost:8080)",
-		"0.0.0.0:8080":   "0.0.0.0:8080 (http://localhost:8080)",
+		":18089":         ":18089 (http://localhost:18089)",
+		"0.0.0.0:18089":  "0.0.0.0:18089 (http://localhost:18089)",
 		"127.0.0.1:9090": "http://127.0.0.1:9090",
-		"[::]:8080":      "[::]:8080 (http://localhost:8080)",
+		"[::]:18089":     "[::]:18089 (http://localhost:18089)",
 		"invalid":        "invalid",
 	}
 	for listen, want := range cases {

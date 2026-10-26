@@ -35,7 +35,7 @@ TEXTS = {
         ],
         "arrow_in": "HTTP + SSE",
         "gateway": "网关进程",
-        "gateway_meta": "localhost:8080",
+        "gateway_meta": "localhost:18089",
         "layers": [
             ("HTTP 接入层", "internal/app", "ServeMux 路由 · 并发上限 · API Key · 错误映射"),
             ("协议编解码", "internal/api/openai", "请求 JSON → llm；llm 事件 → SSE / JSON"),
@@ -82,7 +82,7 @@ TEXTS = {
         ],
         "arrow_in": "HTTP + SSE",
         "gateway": "Gateway process",
-        "gateway_meta": "localhost:8080",
+        "gateway_meta": "localhost:18089",
         "layers": [
             ("HTTP ingress", "internal/app", "Routing · concurrency cap · API key · error mapping"),
             ("Protocol codecs", "internal/api/openai", "Request JSON → llm; llm events → SSE / JSON"),

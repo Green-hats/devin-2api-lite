@@ -79,7 +79,7 @@ go run ./cmd/devin-2api -config config.yaml
 
 ```bash
 docker build -t devin-2api-lite .
-docker run --rm -p 8080:8080 \
+docker run --rm -p 18089:18089 \
   -v "$PWD/config.yaml:/app/config.yaml" \
   devin-2api-lite --config /app/config.yaml
 ```
@@ -87,7 +87,7 @@ docker run --rm -p 8080:8080 \
 ### 4. 验证
 
 ```bash
-curl http://localhost:8080/healthz
+curl http://localhost:18089/healthz
 # {"status":"ok"}
 ```
 
@@ -95,12 +95,12 @@ curl http://localhost:8080/healthz
 
 | 配置项 | 值 |
 | --- | --- |
-| Base URL | `http://localhost:8080/v1` |
+| Base URL | `http://localhost:18089/v1` |
 | API Key | `auth.api_key`；未设置时任意非空字符串 |
 | Model | `glm-5-2` 或 `/v1/models` 返回的任意 uid |
 
 ```bash
-curl -N http://localhost:8080/v1/chat/completions \
+curl -N http://localhost:18089/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
     "model": "glm-5-2",
@@ -127,7 +127,7 @@ OpenAI SDK、Codex CLI、IDE 插件等 OpenAI 兼容客户端，把 Base URL 指
 
 | 字段 | 默认值 | 说明 |
 | --- | --- | --- |
-| `server.listen` | `:8080` | HTTP 监听地址 |
+| `server.listen` | `:18089` | HTTP 监听地址 |
 | `server.max_concurrency` | `1024` | `/v1/*` 并发上限 |
 | `devin.base_url` | — | Devin Connect 地址，如 `https://server.codeium.com` |
 | `devin.token` | — | 会话 token；未设置时 `/v1/*` 不可用 |

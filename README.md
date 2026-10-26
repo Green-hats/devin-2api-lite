@@ -81,7 +81,7 @@ Or with Docker:
 
 ```bash
 docker build -t devin-2api-lite .
-docker run --rm -p 8080:8080 \
+docker run --rm -p 18089:18089 \
   -v "$PWD/config.yaml:/app/config.yaml" \
   devin-2api-lite --config /app/config.yaml
 ```
@@ -89,7 +89,7 @@ docker run --rm -p 8080:8080 \
 ### 4. Verify
 
 ```bash
-curl http://localhost:8080/healthz
+curl http://localhost:18089/healthz
 # {"status":"ok"}
 ```
 
@@ -97,12 +97,12 @@ curl http://localhost:8080/healthz
 
 | Setting | Value |
 | --- | --- |
-| Base URL | `http://localhost:8080/v1` |
+| Base URL | `http://localhost:18089/v1` |
 | API key | `auth.api_key`; any non-empty string if unset |
 | Model | `glm-5-2` or any uid from `/v1/models` |
 
 ```bash
-curl -N http://localhost:8080/v1/chat/completions \
+curl -N http://localhost:18089/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
     "model": "glm-5-2",
@@ -129,7 +129,7 @@ Request bodies are capped at 32 MiB; unknown fields are ignored.
 
 | Field | Default | Notes |
 | --- | --- | --- |
-| `server.listen` | `:8080` | HTTP listen address |
+| `server.listen` | `:18089` | HTTP listen address |
 | `server.max_concurrency` | `1024` | Concurrent `/v1/*` requests |
 | `devin.base_url` | — | Devin Connect URL, e.g. `https://server.codeium.com` |
 | `devin.token` | — | Session token; `/v1/*` is unavailable until set |
