@@ -74,6 +74,7 @@ func (application *App) Router() http.Handler {
 	}
 	protected("GET /v1/models", application.listModels)
 	protected("GET /v1/models/{model}", application.getModel)
+	protected("GET /v1/model-manifest", application.modelManifest)
 	protected("POST /v1/responses", application.createResponses)
 	protected("POST /v1/chat/completions", application.createChatCompletions)
 	return mux
@@ -170,4 +171,23 @@ func (application *App) getModel(writer http.ResponseWriter, request *http.Reque
 	err = fmt.Errorf("model %q not found", id)
 	application.logFailure(request.Context(), "model_lookup", http.StatusNotFound, err)
 	writeJSONError(writer, http.StatusNotFound, err.Error())
+}
+
+// modelManifest 返回版本化模型目录；目录尚未加载时返回 503。
+func (application *App) modelManifest(writer http.ResponseWriter, _ *http.Request) {
+	provider, ok := application.adapter.(adapter.ManifestProvider)
+	if !ok {
+		writeJSONError(writer, http.StatusServiceUnavailable, "model manifest is not available")
+		return
+	}
+	manifest := provider.ModelManifest()
+	if manifest.GeneratedAt.IsZero() {
+		writeJSONError(writer, http.StatusServiceUnavailable, "model catalog is not loaded yet")
+		return
+	}
+	if manifest.Stale {
+		writer.Header().Set("X-Catalog-Stale", "true")
+	}
+	writer.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(writer).Encode(manifest)
 }

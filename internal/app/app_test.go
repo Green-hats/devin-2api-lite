@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/Green-hats/devin-2api-lite/internal/adapter"
 	"github.com/Green-hats/devin-2api-lite/internal/config"
@@ -27,6 +28,7 @@ type fakeAdapter struct {
 	lastRequest llm.RequestMessages
 	lastStream  *fakeStream
 	events      []llm.ResponseEvent
+	manifest    adapter.Manifest
 }
 
 func (fake *fakeAdapter) Stream(_ context.Context, request llm.RequestMessages) (llm.ResponseStream, error) {
@@ -39,6 +41,9 @@ func (fake *fakeAdapter) Stream(_ context.Context, request llm.RequestMessages) 
 func (fake *fakeAdapter) ListModels(context.Context) ([]adapter.ModelInfo, error) {
 	return []adapter.ModelInfo{{ID: "gpt-test", Created: 1, OwnedBy: "test"}}, nil
 }
+
+// ModelManifest 返回测试用的目录契约。
+func (fake *fakeAdapter) ModelManifest() adapter.Manifest { return fake.manifest }
 
 type fakeStream struct {
 	events []llm.ResponseEvent
@@ -517,5 +522,34 @@ func TestFailuresAreLoggedWithoutDebug(t *testing.T) {
 	}
 	if !strings.Contains(output, "id=") {
 		t.Fatalf("logs lack request id: %s", output)
+	}
+}
+
+// TestModelManifestEndpoint 验证 manifest 路由和 stale 响应头。
+func TestModelManifestEndpoint(t *testing.T) {
+	fake := &fakeAdapter{manifest: adapter.Manifest{
+		SchemaVersion: 1,
+		GeneratedAt:   time.Now().UTC(),
+		Source:        "https://example.com",
+		CatalogHash:   "hash",
+		Stale:         true,
+		Models:        []adapter.ModelInfo{{ID: "swe-2-high", SupportsImages: true}},
+		Families:      map[string]map[string]string{"swe-2": {"high": "swe-2-high"}},
+	}}
+	application := New(fake, config.ServerConfig{Listen: ":0"}, nil)
+	request := httptest.NewRequest(http.MethodGet, "/v1/model-manifest", nil)
+	response := httptest.NewRecorder()
+	application.Router().ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", response.Code, response.Body.String())
+	}
+	if response.Header().Get("X-Catalog-Stale") != "true" {
+		t.Fatal("stale header missing")
+	}
+	body := response.Body.String()
+	for _, want := range []string{`"schema_version":1`, `"swe-2-high"`, `"families"`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("body lacks %q: %s", want, body)
+		}
 	}
 }

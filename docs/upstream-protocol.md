@@ -140,8 +140,15 @@ token 形如 `devin-session-token$...`，直接拼成 `Basic <token>-<token>`（
 | --- | --- |
 | `GetCascadeModelConfigsRequest` | 1 `metadata` |
 | `GetCascadeModelConfigsResponse` | 1 `client_model_configs` |
-| `ClientModelConfig` | 2 `model_or_alias`、4 `disabled`、5 `supports_images`、10 `provider`、22 `model_uid` |
+| `ClientModelConfig` | 1 `label`、2 `model_or_alias`、4 `disabled`、5 `supports_images`、10 `provider`、18 `max_tokens`、22 `model_uid`、27 `description`、30 `model_family_metadata`、31 `is_default_model_in_family` |
 | `ModelOrAlias` | 3 `model_uid`（oneof 的字符串分支） |
+| `ModelFamilyMetadata` | 1 `model_family_label`、2 `entries`、3 `is_default_model_in_family` |
+| `ModelFamilyMetadataEntry` | 1 `key`、2 `value` |
+| `ModelFamilyMetadataValue` | 1 `order`、2 `name` |
+
+`ModelFamilyMetadata` 里的 `Reasoning Effort` / `Effort` / `Thinking` entry 用来生成
+`families` 档位建议；`Fast Mode` entry 用来排除 lightning 变体。这些建议只写入
+manifest，不会自动改变请求行为。
 
 ## 枚举
 

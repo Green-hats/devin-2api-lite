@@ -3,6 +3,8 @@ package main
 
 import (
 	"bytes"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -67,7 +69,7 @@ func TestRunCheckWithFakeUpstream(t *testing.T) {
 		},
 	}
 	var out bytes.Buffer
-	if err := runCheck(&serviceConfig, "config.yaml", &out); err != nil {
+	if err := runCheck(&serviceConfig, "config.yaml", &out, testLogger()); err != nil {
 		t.Fatal(err)
 	}
 	text := out.String()
@@ -81,7 +83,7 @@ func TestRunCheckWithFakeUpstream(t *testing.T) {
 // TestRunCheckRejectsEmptyToken 验证空 token 给出可操作的错误。
 func TestRunCheckRejectsEmptyToken(t *testing.T) {
 	var serviceConfig config.Config
-	err := runCheck(&serviceConfig, "config.yaml", &bytes.Buffer{})
+	err := runCheck(&serviceConfig, "config.yaml", &bytes.Buffer{}, testLogger())
 	if err == nil || !strings.Contains(err.Error(), "devin.token") {
 		t.Fatalf("error = %v", err)
 	}
@@ -92,4 +94,9 @@ func TestVersionString(t *testing.T) {
 	if versionString() == "" {
 		t.Fatal("version string is empty")
 	}
+}
+
+// testLogger 返回丢弃输出的测试日志器。
+func testLogger() *slog.Logger {
+	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }

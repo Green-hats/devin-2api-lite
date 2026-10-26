@@ -10,6 +10,7 @@ config.yaml
 
 # 运行与测试产物
 /logs/
+/state/
 coverage.out
 *.test
 

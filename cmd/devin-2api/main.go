@@ -25,6 +25,7 @@ import (
 func main() {
 	configPath := flag.String("config", "config.yaml", "YAML 配置文件路径")
 	check := flag.Bool("check", false, "校验配置与上游连通性后退出")
+	syncModels := flag.Bool("sync-models", false, "拉取上游模型目录并写入快照后退出")
 	showVersion := flag.Bool("version", false, "打印版本后退出")
 	flag.Parse()
 
@@ -45,14 +46,22 @@ func main() {
 		log.Printf("warning: devin.base_url uses http; the session token will be sent unencrypted")
 	}
 
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	if *check {
-		if err := runCheck(&serviceConfig, absoluteConfigPath, os.Stdout); err != nil {
+		if err := runCheck(&serviceConfig, absoluteConfigPath, os.Stdout, logger); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
+	if *syncModels {
+		if err := runSyncModels(&serviceConfig, absoluteConfigPath, os.Stdout, logger); err != nil {
 			log.Fatal(err)
 		}
 		return
 	}
 
-	providerAdapter, err := newProviderAdapter(serviceConfig)
+	snapshotPath := resolveCatalogSnapshotPath(absoluteConfigPath, serviceConfig.Catalog.Snapshot)
+	providerAdapter, err := newProviderAdapter(serviceConfig, snapshotPath, logger)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -60,7 +69,6 @@ func main() {
 	if serviceConfig.Debug.Enabled {
 		debugManager = debuglog.NewManager(filepath.Join(filepath.Dir(absoluteConfigPath), "logs"))
 	}
-	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	application := app.New(providerAdapter, serviceConfig.Server, debugManager)
 	application.SetAPIKey(serviceConfig.Auth.APIKey)
 	application.SetLogger(logger)

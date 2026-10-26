@@ -128,6 +128,7 @@ OpenAI SDK、Codex CLI、IDE 插件等 OpenAI 兼容客户端，把 Base URL 指
 | `/v1/responses` | POST | typed SSE | `input`、`instructions`、`tools` |
 | `/v1/models` | GET | — | 上游模型目录（带缓存） |
 | `/v1/models/{model}` | GET | — | 单个模型 |
+| `/v1/model-manifest` | GET | — | 版本化模型目录（schema、families、hash、stale） |
 | `/healthz` | GET | — | 不鉴权、不占并发 |
 
 请求体上限 32 MiB；未知字段会被忽略。状态码：未配置 token 返回 503，上游流超过
@@ -146,6 +147,8 @@ OpenAI SDK、Codex CLI、IDE 插件等 OpenAI 兼容客户端，把 Base URL 指
 | `devin.force_http1` | `true` | 规避上游 HTTP/2 多路复用瓶颈 |
 | `devin.stream_idle_timeout` | `5m` | 上游超时无帧则返回 504；`0` 表示不限制 |
 | `devin.reasoning_tiers` | — | 把「基础模型 + reasoning_effort」映射为实际 uid，如 `swe-2` + `high` → `swe-2-high` |
+| `catalog.snapshot` | — | 模型目录快照路径，相对 `config.yaml`；留空不写快照 |
+| `catalog.refresh` | `5m` | 模型目录刷新间隔 |
 | `debug.enabled` | `false` | 在 `logs/` 下记录每请求日志 |
 | `auth.api_key` | — | 为空则不校验 |
 
@@ -165,6 +168,23 @@ Responses 用 `reasoning.effort`，Chat 也接受 `thinking: true` 作为 `high`
 只有配置过的映射才会生效，网关不会自行拼后缀；客户端传显式档位（如 `swe-2-high`）时保持原样。
 基础 id（如 `swe-2`）是虚拟名称，可能不在 `/v1/models` 中，需要客户端直接填写。
 
+### 模型目录快照
+
+配置 `catalog.snapshot` 后，网关会把上游目录写成机器维护的 JSON，并在上游不可用时回退：
+
+```yaml
+catalog:
+  snapshot: "state/models.json"
+  refresh: "5m"
+```
+
+- 文件原子写入（`0600`），不是配置文件的替代品；
+- 上游失败时使用上次快照，并标记 `stale`；
+- `/v1/model-manifest` 返回 `schema_version`、`generated_at`、`catalog_hash`、`stale`、
+  完整模型元数据和 `families` 建议；
+- `go run ./cmd/devin-2api -config config.yaml -sync-models` 可手动刷新；
+- `families` 只是建议，复制到 `devin.reasoning_tiers` 才生效。
+
 未知 YAML 字段会被拒绝。所有字段都可用环境变量覆盖（`SERVER_LISTEN`、`DEVIN_TOKEN`、
 `DEVIN_STREAM_IDLE_TIMEOUT`、`AUTH_API_KEY` 等），见 `config.example.yaml`。
 调试日志包含 HTTP 请求、中间请求、上游帧、事件流、响应以及首个失败阶段；即使关闭 debug，
@@ -178,7 +198,7 @@ Responses 用 `reasoning.effort`，Chat 也接受 `thinking: true` 作为 `high`
 | 上游绑定 | protoc 生成 Connect 绑定 | 手写 wire + Connect |
 | 构建前置 | `task generate` | 无 |
 | 依赖 | 7 个 | 1 个（`yaml.v3`） |
-| 生产代码 | 8,851 行 | 6,552 行 |
+| 生产代码 | 8,851 行 | 7,183 行 |
 
 分层边界没有变化；要加回 Anthropic 或 WebSocket，只需补一个编解码包。
 
@@ -205,6 +225,9 @@ go test ./internal/connect -run=^$ -fuzz=FuzzReadFrame -fuzztime=10s
 
 # 校验硬编码字段号是否与最新提取的 proto 一致
 go run ./cmd/fieldcheck /path/to/all-protos.proto
+
+# 手动刷新模型目录快照
+go run ./cmd/devin-2api -config config.yaml -sync-models
 ```
 
 ## 来源

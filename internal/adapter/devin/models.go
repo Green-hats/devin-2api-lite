@@ -103,6 +103,7 @@ func resolveReasoningModel(model, effort string, tiers map[string]map[string]str
 }
 
 // ListModels 通过 GetCascadeModelConfigs 拉取可用模型目录，结果带 TTL 缓存。
+// 上游失败时回退到本地快照，并在 manifest 中标记 stale。
 func (a *Adapter) ListModels(ctx context.Context) ([]adapter.ModelInfo, error) {
 	a.modelsMu.RLock()
 	if a.models != nil && time.Now().Before(a.modelsExpiry) {
@@ -124,10 +125,16 @@ func (a *Adapter) ListModels(ctx context.Context) ([]adapter.ModelInfo, error) {
 		},
 	}).encode())
 	if err != nil {
+		if models, ok := a.loadSnapshotFallback(err); ok {
+			return models, nil
+		}
 		return nil, fmt.Errorf("call GetCascadeModelConfigs: %w", err)
 	}
 	response, err := decodeModelConfigs(payload)
 	if err != nil {
+		if models, ok := a.loadSnapshotFallback(err); ok {
+			return models, nil
+		}
 		return nil, fmt.Errorf("decode Devin model configs: %w", err)
 	}
 
@@ -143,8 +150,26 @@ func (a *Adapter) ListModels(ctx context.Context) ([]adapter.ModelInfo, error) {
 			continue
 		}
 		seen[uid] = struct{}{}
+		family := ""
+		if c.family != nil {
+			family = c.family.label
+		}
+		defaultInFamily := c.defaultInFamily
+		if !defaultInFamily && c.family != nil {
+			defaultInFamily = c.family.defaultInFamily
+		}
 		models = append(models, adapter.ModelInfo{
-			ID: uid, Created: now, OwnedBy: providerName(c.provider), SupportsImages: c.supportsImages,
+			ID:              uid,
+			Created:         now,
+			OwnedBy:         providerName(c.provider),
+			SupportsImages:  c.supportsImages,
+			Label:           c.label,
+			Description:     c.description,
+			MaxTokens:       c.maxTokens,
+			Family:          family,
+			Effort:          c.effort(),
+			FastMode:        c.fastMode(),
+			DefaultInFamily: defaultInFamily,
 		})
 	}
 	// 用户显式配置的 model（如 gpt5.6）即使不在 Devin 返回的列表中，也应可被发现和调用。
@@ -158,16 +183,38 @@ func (a *Adapter) ListModels(ctx context.Context) ([]adapter.ModelInfo, error) {
 		}
 	}
 
+	families := suggestFamilies(models)
+	generatedAt := time.Now().UTC()
+	hash := catalogHash(models, families)
 	a.recordImageSupport(models)
 
 	a.modelsMu.Lock()
-	defer a.modelsMu.Unlock()
 	// 请求期间可能有其他请求已写入缓存，避免覆盖更热的数据。
 	if a.models != nil && time.Now().Before(a.modelsExpiry) {
-		return cloneModelInfo(a.models), nil
+		cached := cloneModelInfo(a.models)
+		a.modelsMu.Unlock()
+		return cached, nil
 	}
+	previousHash := a.catalogHash
 	a.models = models
 	a.modelsExpiry = time.Now().Add(a.modelsCacheTTL)
+	a.catalogGeneratedAt = generatedAt
+	a.catalogSource = a.config.BaseURL
+	a.catalogHash = hash
+	a.catalogFamilies = families
+	a.catalogStale = false
+	a.modelsMu.Unlock()
+
+	if previousHash != hash {
+		a.persistSnapshot(catalogSnapshot{
+			SchemaVersion: catalogSnapshotSchemaVersion,
+			GeneratedAt:   generatedAt,
+			Source:        a.config.BaseURL,
+			CatalogHash:   hash,
+			Models:        models,
+			Families:      families,
+		})
+	}
 	return cloneModelInfo(models), nil
 }
 

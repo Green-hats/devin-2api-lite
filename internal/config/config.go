@@ -23,6 +23,8 @@ type Config struct {
 	Server ServerConfig `yaml:"server"`
 	// Devin 保存 Devin Connect 上游配置。
 	Devin DevinConfig `yaml:"devin"`
+	// Catalog 保存模型目录快照配置。
+	Catalog CatalogConfig `yaml:"catalog"`
 	// Debug 保存仅用于本地诊断的日志配置。
 	Debug DebugConfig `yaml:"debug"`
 	// Auth 保存对外 OpenAI 兼容接口的访问控制配置。
@@ -58,6 +60,16 @@ type DevinConfig struct {
 	// ReasoningTiers 把「基础模型 + 推理档位」映射成实际 Devin uid。
 	// 例如 swe-2 + high -> swe-2-high。
 	ReasoningTiers map[string]map[string]string `yaml:"reasoning_tiers"`
+}
+
+// CatalogConfig 保存模型目录快照与刷新配置。
+type CatalogConfig struct {
+	// Snapshot 是目录快照路径；为空表示不写快照。
+	Snapshot string `yaml:"snapshot"`
+	// Refresh 是目录刷新间隔，例如 5m。
+	Refresh string `yaml:"refresh"`
+	// RefreshInterval 是 Refresh 解析后的值，由 Validate 填充。
+	RefreshInterval time.Duration `yaml:"-"`
 }
 
 // DebugConfig 保存请求级调试日志配置。
@@ -125,6 +137,17 @@ func (config *Config) Validate() error {
 	if err := config.normalizeReasoningTiers(); err != nil {
 		return err
 	}
+	if config.Catalog.Refresh == "" {
+		config.Catalog.Refresh = "5m"
+	}
+	refreshInterval, err := time.ParseDuration(config.Catalog.Refresh)
+	if err != nil {
+		return fmt.Errorf("catalog.refresh %q: %w", config.Catalog.Refresh, err)
+	}
+	if refreshInterval < 0 {
+		return errors.New("catalog.refresh cannot be negative")
+	}
+	config.Catalog.RefreshInterval = refreshInterval
 	return nil
 }
 

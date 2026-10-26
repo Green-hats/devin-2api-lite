@@ -122,11 +122,23 @@ var expectations = []fieldExpectation{
 
 	{"GetCascadeModelConfigsRequest", "metadata", 1},
 	{"GetCascadeModelConfigsResponse", "client_model_configs", 1},
+	{"ExaCodeiumCommonPb_ClientModelConfig", "label", 1},
 	{"ExaCodeiumCommonPb_ClientModelConfig", "model_or_alias", 2},
 	{"ExaCodeiumCommonPb_ClientModelConfig", "disabled", 4},
 	{"ExaCodeiumCommonPb_ClientModelConfig", "supports_images", 5},
 	{"ExaCodeiumCommonPb_ClientModelConfig", "provider", 10},
+	{"ExaCodeiumCommonPb_ClientModelConfig", "max_tokens", 18},
 	{"ExaCodeiumCommonPb_ClientModelConfig", "model_uid", 22},
+	{"ExaCodeiumCommonPb_ClientModelConfig", "description", 27},
+	{"ExaCodeiumCommonPb_ClientModelConfig", "model_family_metadata", 30},
+	{"ExaCodeiumCommonPb_ClientModelConfig", "is_default_model_in_family", 31},
+	{"ExaCodeiumCommonPb_ModelFamilyMetadata", "model_family_label", 1},
+	{"ExaCodeiumCommonPb_ModelFamilyMetadata", "entries", 2},
+	{"ExaCodeiumCommonPb_ModelFamilyMetadata", "is_default_model_in_family", 3},
+	{"ExaCodeiumCommonPb_ModelFamilyMetadataEntry", "key", 1},
+	{"ExaCodeiumCommonPb_ModelFamilyMetadataEntry", "value", 2},
+	{"ExaCodeiumCommonPb_ModelFamilyMetadataValue", "order", 1},
+	{"ExaCodeiumCommonPb_ModelFamilyMetadataValue", "name", 2},
 	{"ExaCodeiumCommonPb_ModelOrAlias", "model_uid", 3},
 }
 

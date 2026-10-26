@@ -205,3 +205,26 @@ func TestValidateNormalizesReasoningTiers(t *testing.T) {
 		t.Fatal("empty target should be rejected")
 	}
 }
+
+// TestValidateCatalogRefresh 验证默认刷新间隔与非法值。
+func TestValidateCatalogRefresh(t *testing.T) {
+	var loaded Config
+	if err := loaded.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Catalog.RefreshInterval != 5*time.Minute {
+		t.Fatalf("RefreshInterval = %v", loaded.Catalog.RefreshInterval)
+	}
+	var invalid Config
+	invalid.Catalog.Refresh = "soon"
+	if err := invalid.Validate(); err == nil {
+		t.Fatal("invalid refresh should be rejected")
+	}
+}
+
+// TestExampleConfigLoads 验证仓库里的 config.example.yaml 始终可解析。
+func TestExampleConfigLoads(t *testing.T) {
+	if _, err := Load(filepath.Join("..", "..", "config.example.yaml")); err != nil {
+		t.Fatal(err)
+	}
+}

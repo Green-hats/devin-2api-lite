@@ -25,6 +25,8 @@ func applyEnvironment(config *Config) error {
 	if err := boolValueEnv("DEBUG_ENABLED", &config.Debug.Enabled); err != nil {
 		return err
 	}
+	stringEnv("CATALOG_SNAPSHOT", &config.Catalog.Snapshot)
+	stringEnv("CATALOG_REFRESH", &config.Catalog.Refresh)
 	stringEnv("AUTH_API_KEY", &config.Auth.APIKey)
 	return nil
 }

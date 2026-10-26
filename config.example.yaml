@@ -3,6 +3,12 @@ server:
   # 同时处理的 /v1/* 请求数上限；0 或不填表示使用默认值 1024。
   max_concurrency: 1024
 
+catalog:
+  # 模型目录快照；相对路径基于 config.yaml 所在目录。留空不写快照。
+  snapshot: "state/models.json"
+  # 目录刷新间隔；默认 5m。
+  refresh: "5m"
+
 debug:
   # 开启后每个请求在 config.yaml 同目录的 logs/<时间>/ 下留一份调试记录。
   enabled: false
@@ -38,3 +44,4 @@ auth:
 #   DEVIN_BASE_URL, DEVIN_TOKEN, DEVIN_MODEL, DEVIN_PROXY,
 #   DEVIN_FORCE_HTTP1, DEVIN_STREAM_IDLE_TIMEOUT
 #   DEBUG_ENABLED, AUTH_API_KEY
+#   CATALOG_SNAPSHOT, CATALOG_REFRESH

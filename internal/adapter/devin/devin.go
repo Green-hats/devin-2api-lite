@@ -7,6 +7,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
@@ -45,6 +47,12 @@ type Config struct {
 	IdleTimeout time.Duration
 	// ReasoningTiers 把基础模型 + 推理档位映射到实际 uid。
 	ReasoningTiers map[string]map[string]string
+	// SnapshotPath 是模型目录快照路径；为空表示不写快照。
+	SnapshotPath string
+	// CatalogRefresh 是模型目录缓存/刷新间隔；0 表示默认 5m。
+	CatalogRefresh time.Duration
+	// Logger 用于记录快照写入/回退等非请求错误；nil 表示丢弃。
+	Logger *slog.Logger
 }
 
 // Adapter 调用 Devin 的 ApiServerService/GetChatMessage。
@@ -56,12 +64,27 @@ type Adapter struct {
 	models         []adapter.ModelInfo
 	modelsExpiry   time.Time
 	modelsCacheTTL time.Duration
+	// snapshotPath 是模型目录快照路径；空表示禁用。
+	snapshotPath string
+	// logger 记录快照写入/回退错误。
+	logger *slog.Logger
+	// catalogGeneratedAt 是当前内存目录的生成时间。
+	catalogGeneratedAt time.Time
+	// catalogSource 是目录来源地址。
+	catalogSource string
+	// catalogHash 是当前目录内容的稳定摘要。
+	catalogHash string
+	// catalogFamilies 是根据 family metadata 生成的档位建议。
+	catalogFamilies map[string]map[string]string
+	// catalogStale 表示当前目录来自本地快照。
+	catalogStale bool
 	// imagesMu 保护从模型目录学到的图片能力，避免与硬编码名单互相矛盾。
 	imagesMu     sync.RWMutex
 	imageSupport map[string]bool
 }
 
 var _ adapter.Adapter = (*Adapter)(nil)
+var _ adapter.ManifestProvider = (*Adapter)(nil)
 
 // New 创建 Devin adapter。
 func New(config Config) (*Adapter, error) {
@@ -87,11 +110,21 @@ func New(config Config) (*Adapter, error) {
 	// 一元调用（模型目录）设置整体超时，避免慢请求长时间占用 goroutine。
 	unaryClient := connect.NewClient(config.BaseURL, &http.Client{Transport: transport, Timeout: 610 * time.Second})
 
+	refresh := config.CatalogRefresh
+	if refresh <= 0 {
+		refresh = 5 * time.Minute
+	}
+	logger := config.Logger
+	if logger == nil {
+		logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	}
 	return &Adapter{
 		config:         config,
 		streamClient:   streamClient,
 		unaryClient:    unaryClient,
-		modelsCacheTTL: 5 * time.Minute,
+		modelsCacheTTL: refresh,
+		snapshotPath:   config.SnapshotPath,
+		logger:         logger,
 		imageSupport:   make(map[string]bool),
 	}, nil
 }

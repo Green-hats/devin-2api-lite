@@ -130,6 +130,7 @@ Any OpenAI-compatible client (OpenAI SDK, Codex CLI, IDE plugins) can point its 
 | `/v1/responses` | POST | typed SSE | `input`, `instructions`, `tools` |
 | `/v1/models` | GET | — | Cached upstream catalog |
 | `/v1/models/{model}` | GET | — | Single model |
+| `/v1/model-manifest` | GET | — | Versioned catalog manifest (schema, families, hash, stale) |
 | `/healthz` | GET | — | No auth, no concurrency limit |
 
 Request bodies are capped at 32 MiB; unknown fields are ignored. Status codes: 503 when no token is
@@ -148,6 +149,8 @@ configured, 504 when the upstream stream is idle past `stream_idle_timeout`, 413
 | `devin.force_http1` | `true` | Avoids the upstream's HTTP/2 multiplexing bottleneck |
 | `devin.stream_idle_timeout` | `5m` | Returns 504 if no upstream frame arrives in time; `0` disables |
 | `devin.reasoning_tiers` | — | Maps a base id + `reasoning_effort` to an actual uid, e.g. `swe-2` + `high` → `swe-2-high` |
+| `catalog.snapshot` | — | Model catalog snapshot path, relative to `config.yaml`; empty disables |
+| `catalog.refresh` | `5m` | Catalog refresh interval |
 | `debug.enabled` | `false` | Writes per-request logs under `logs/` |
 | `auth.api_key` | — | Empty disables auth |
 
@@ -168,6 +171,24 @@ for `high` in Chat Completions. Only configured mappings apply — the gateway n
 suffixes, and an explicit tier id such as `swe-2-high` is left untouched. Base ids such as
 `swe-2` are virtual and may not appear in `/v1/models`; clients must send them explicitly.
 
+### Model catalog snapshot
+
+With `catalog.snapshot` set, the gateway writes the upstream catalog to a machine-owned JSON file
+and falls back to it when the upstream is unavailable:
+
+```yaml
+catalog:
+  snapshot: "state/models.json"
+  refresh: "5m"
+```
+
+- the file is written atomically (`0600`) and is **not** a config file;
+- on upstream failure the last snapshot is served and marked `stale`;
+- `/v1/model-manifest` exposes `schema_version`, `generated_at`, `catalog_hash`, `stale`,
+  full model metadata and `families` suggestions;
+- `go run ./cmd/devin-2api -config config.yaml -sync-models` refreshes on demand;
+- `families` are suggestions only; copy an entry into `devin.reasoning_tiers` to activate it.
+
 Unknown YAML fields are rejected. Every field can be overridden by an environment variable
 (`SERVER_LISTEN`, `DEVIN_TOKEN`, `DEVIN_STREAM_IDLE_TIMEOUT`, `AUTH_API_KEY`, ...); see `config.example.yaml`.
 Debug logs capture the HTTP request, intermediate request, upstream frames, events and response, plus the
@@ -181,7 +202,7 @@ first failing stage. Failures are also logged to stderr with a request ID, even 
 | Upstream bindings | Generated Connect bindings | Hand-written wire + Connect |
 | Build step | `task generate` | None |
 | Dependencies | 7 | 1 (`yaml.v3`) |
-| Production LOC | 8,851 | 6,552 |
+| Production LOC | 8,851 | 7,183 |
 
 The layer boundaries are unchanged; adding Anthropic or WebSocket back means adding one
 codec package.
@@ -209,6 +230,9 @@ go test ./internal/connect -run=^$ -fuzz=FuzzReadFrame -fuzztime=10s
 
 # verify hard-coded fields against a freshly extracted proto
 go run ./cmd/fieldcheck /path/to/all-protos.proto
+
+# refresh the model catalog snapshot on demand
+go run ./cmd/devin-2api -config config.yaml -sync-models
 ```
 
 ## Credits
