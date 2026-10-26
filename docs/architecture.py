@@ -67,7 +67,7 @@ TEXTS = {
         "arrow_req": ("protobuf", "Connect 帧"),
         "arrow_resp": ("响应帧 /", "结束信封"),
         "bottom_modules": "辅助模块：config.yaml 配置 · debuglog 每请求日志 · httpproxy 代理与连接池 · docs/upstream-protocol.md 字段表",
-        "bottom_quality": "质量：85 个测试（含 httptest 假上游端到端）· go vet · gofmt · go test -race · 单二进制约 7 MB",
+        "bottom_quality": "质量：假上游端到端 · race · staticcheck · fuzz · 单二进制约 7 MB",
         "bottom_license": "MIT",
     },
     "en": {
@@ -114,7 +114,7 @@ TEXTS = {
         "arrow_req": ("protobuf", "Connect frame"),
         "arrow_resp": ("response frame", "end envelope"),
         "bottom_modules": "Supporting: config.yaml · debuglog per-request logs · httpproxy · docs/upstream-protocol.md",
-        "bottom_quality": "Quality: 85 tests (fake-upstream e2e) · go vet · gofmt · go test -race · ~7 MB binary",
+        "bottom_quality": "Quality: fake-upstream e2e · race · staticcheck · fuzz · ~7 MB binary",
         "bottom_license": "MIT",
     },
 }

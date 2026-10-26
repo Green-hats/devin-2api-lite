@@ -4,9 +4,9 @@
 
 **A minimal gateway that puts Devin behind any OpenAI-compatible client**
 
-[![Go](https://img.shields.io/badge/Go-1.22+-00ADD8?style=flat-square&logo=go&logoColor=white)](go.mod)
+[![Go](https://img.shields.io/badge/Go-1.26+-00ADD8?style=flat-square&logo=go&logoColor=white)](go.mod)
 [![License](https://img.shields.io/badge/license-MIT-2ea44f?style=flat-square)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-85%20passing-2ea44f?style=flat-square)](#development)
+[![CI](https://github.com/Green-hats/devin-2api-lite/actions/workflows/ci.yml/badge.svg)](https://github.com/Green-hats/devin-2api-lite/actions/workflows/ci.yml)
 [![protoc](https://img.shields.io/badge/protoc-not%20required-4c78a8?style=flat-square)](#what-it-is)
 [![Dependencies](https://img.shields.io/badge/dependencies-1-f2c55c?style=flat-square)](go.mod)
 
@@ -71,7 +71,16 @@ cd devin-2api-lite
 cp config.example.yaml config.yaml   # fill in devin.token
 ```
 
-### 3. Run
+### 3. Check the token
+
+```bash
+go run ./cmd/devin-2api -config config.yaml -check
+# config ... / upstream ... / models N (vision M) / configured found=true
+```
+
+This calls the upstream model catalog once and exits. It is the fastest way to confirm a token still works.
+
+### 4. Run
 
 ```bash
 go run ./cmd/devin-2api -config config.yaml
@@ -86,7 +95,7 @@ docker run --rm -p 18089:18089 \
   devin-2api-lite --config /app/config.yaml
 ```
 
-### 4. Verify
+### 5. Verify
 
 ```bash
 curl http://localhost:18089/healthz
@@ -123,7 +132,8 @@ Any OpenAI-compatible client (OpenAI SDK, Codex CLI, IDE plugins) can point its 
 | `/v1/models/{model}` | GET | — | Single model |
 | `/healthz` | GET | — | No auth, no concurrency limit |
 
-Request bodies are capped at 32 MiB; unknown fields are ignored.
+Request bodies are capped at 32 MiB; unknown fields are ignored. Status codes: 503 when no token is
+configured, 504 when the upstream stream is idle past `stream_idle_timeout`, 413 for oversized bodies.
 
 ## Configuration
 
@@ -136,11 +146,14 @@ Request bodies are capped at 32 MiB; unknown fields are ignored.
 | `devin.model` | — | Default uid; a request's `model` wins |
 | `devin.proxy` | — | Optional HTTP/HTTPS proxy |
 | `devin.force_http1` | `true` | Avoids the upstream's HTTP/2 multiplexing bottleneck |
+| `devin.stream_idle_timeout` | `5m` | Returns 504 if no upstream frame arrives in time; `0` disables |
 | `debug.enabled` | `false` | Writes per-request logs under `logs/` |
 | `auth.api_key` | — | Empty disables auth |
 
-Unknown YAML fields are rejected. Debug logs capture the HTTP request, intermediate request, upstream frames,
-events and response, plus the first failing stage.
+Unknown YAML fields are rejected. Every field can be overridden by an environment variable
+(`SERVER_LISTEN`, `DEVIN_TOKEN`, `DEVIN_STREAM_IDLE_TIMEOUT`, `AUTH_API_KEY`, ...); see `config.example.yaml`.
+Debug logs capture the HTTP request, intermediate request, upstream frames, events and response, plus the
+first failing stage. Failures are also logged to stderr with a request ID, even when `debug.enabled` is off.
 
 ## Differences from the original
 
@@ -150,7 +163,7 @@ events and response, plus the first failing stage.
 | Upstream bindings | Generated Connect bindings | Hand-written wire + Connect |
 | Build step | `task generate` | None |
 | Dependencies | 7 | 1 (`yaml.v3`) |
-| Production LOC | 8,851 | 5,588 |
+| Production LOC | 8,851 | 6,186 |
 
 The `llm` layer and protocol abstraction are unchanged; adding Anthropic or WebSocket back means adding one
 codec package.
@@ -166,9 +179,15 @@ codec package.
 ## Development
 
 ```bash
-go test ./...     # full suite, including a fake-upstream end-to-end test
+go test -race ./...
 go vet ./...
+go install honnef.co/go/tools/cmd/staticcheck@2026.2.2
+staticcheck ./...
 gofmt -l .
+
+# fuzz the hand-written protocol parsers
+go test ./internal/adapter/devin -run=^$ -fuzz=FuzzDecodeChatResponse -fuzztime=10s
+go test ./internal/connect -run=^$ -fuzz=FuzzReadFrame -fuzztime=10s
 ```
 
 ## Credits

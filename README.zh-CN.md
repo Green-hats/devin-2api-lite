@@ -4,9 +4,9 @@
 
 **把 Devin 接进任何 OpenAI 兼容客户端的最小网关**
 
-[![Go](https://img.shields.io/badge/Go-1.22+-00ADD8?style=flat-square&logo=go&logoColor=white)](go.mod)
+[![Go](https://img.shields.io/badge/Go-1.26+-00ADD8?style=flat-square&logo=go&logoColor=white)](go.mod)
 [![License](https://img.shields.io/badge/license-MIT-2ea44f?style=flat-square)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-85%20passing-2ea44f?style=flat-square)](#开发)
+[![CI](https://github.com/Green-hats/devin-2api-lite/actions/workflows/ci.yml/badge.svg)](https://github.com/Green-hats/devin-2api-lite/actions/workflows/ci.yml)
 [![protoc](https://img.shields.io/badge/protoc-not%20required-4c78a8?style=flat-square)](#这是什么)
 [![Dependencies](https://img.shields.io/badge/dependencies-1-f2c55c?style=flat-square)](go.mod)
 
@@ -69,7 +69,16 @@ cd devin-2api-lite
 cp config.example.yaml config.yaml   # 填入 devin.token
 ```
 
-### 3. 运行
+### 3. 自检
+
+```bash
+go run ./cmd/devin-2api -config config.yaml -check
+# config ... / upstream ... / models N (vision M) / configured found=true
+```
+
+它会调用一次上游模型目录后退出，是确认 token 是否仍然可用的最快方式。
+
+### 4. 运行
 
 ```bash
 go run ./cmd/devin-2api -config config.yaml
@@ -84,7 +93,7 @@ docker run --rm -p 18089:18089 \
   devin-2api-lite --config /app/config.yaml
 ```
 
-### 4. 验证
+### 5. 验证
 
 ```bash
 curl http://localhost:18089/healthz
@@ -121,7 +130,8 @@ OpenAI SDK、Codex CLI、IDE 插件等 OpenAI 兼容客户端，把 Base URL 指
 | `/v1/models/{model}` | GET | — | 单个模型 |
 | `/healthz` | GET | — | 不鉴权、不占并发 |
 
-请求体上限 32 MiB；未知字段会被忽略。
+请求体上限 32 MiB；未知字段会被忽略。状态码：未配置 token 返回 503，上游流超过
+`stream_idle_timeout` 无帧返回 504，请求体过大返回 413。
 
 ## 配置
 
@@ -134,10 +144,14 @@ OpenAI SDK、Codex CLI、IDE 插件等 OpenAI 兼容客户端，把 Base URL 指
 | `devin.model` | — | 默认模型；请求里的 `model` 优先 |
 | `devin.proxy` | — | 可选 HTTP/HTTPS 代理 |
 | `devin.force_http1` | `true` | 规避上游 HTTP/2 多路复用瓶颈 |
+| `devin.stream_idle_timeout` | `5m` | 上游超时无帧则返回 504；`0` 表示不限制 |
 | `debug.enabled` | `false` | 在 `logs/` 下记录每请求日志 |
 | `auth.api_key` | — | 为空则不校验 |
 
-未知 YAML 字段会被拒绝。调试日志包含 HTTP 请求、中间请求、上游帧、事件流、响应以及首个失败阶段。
+未知 YAML 字段会被拒绝。所有字段都可用环境变量覆盖（`SERVER_LISTEN`、`DEVIN_TOKEN`、
+`DEVIN_STREAM_IDLE_TIMEOUT`、`AUTH_API_KEY` 等），见 `config.example.yaml`。
+调试日志包含 HTTP 请求、中间请求、上游帧、事件流、响应以及首个失败阶段；即使关闭 debug，
+失败也会带请求 ID 输出到 stderr。
 
 ## 与原版的区别
 
@@ -147,7 +161,7 @@ OpenAI SDK、Codex CLI、IDE 插件等 OpenAI 兼容客户端，把 Base URL 指
 | 上游绑定 | protoc 生成 Connect 绑定 | 手写 wire + Connect |
 | 构建前置 | `task generate` | 无 |
 | 依赖 | 7 个 | 1 个（`yaml.v3`） |
-| 生产代码 | 8,851 行 | 5,588 行 |
+| 生产代码 | 8,851 行 | 6,186 行 |
 
 `llm` 中间层与协议抽象没有变化；要加回 Anthropic 或 WebSocket，只需补一个编解码包。
 
@@ -162,9 +176,15 @@ OpenAI SDK、Codex CLI、IDE 插件等 OpenAI 兼容客户端，把 Base URL 指
 ## 开发
 
 ```bash
-go test ./...     # 完整测试，含假上游端到端
+go test -race ./...
 go vet ./...
+go install honnef.co/go/tools/cmd/staticcheck@2026.2.2
+staticcheck ./...
 gofmt -l .
+
+# 对手写协议解析器做模糊测试
+go test ./internal/adapter/devin -run=^$ -fuzz=FuzzDecodeChatResponse -fuzztime=10s
+go test ./internal/connect -run=^$ -fuzz=FuzzReadFrame -fuzztime=10s
 ```
 
 ## 来源
