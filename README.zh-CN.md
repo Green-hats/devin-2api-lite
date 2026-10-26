@@ -12,7 +12,7 @@
 
 <a href="README.md">English</a> | <b>中文</b>
 
-[快速开始](#快速开始) · [接口](#接口) · [配置](#配置) · [来源](#来源)
+[快速开始](#快速开始) · [接口](#接口) · [配置](#配置) · [贡献者](#贡献者) · [来源](#来源)
 
 </div>
 
@@ -238,6 +238,15 @@ go run ./cmd/fieldcheck /path/to/all-protos.proto
 # 手动刷新模型目录快照
 go run ./cmd/devin-2api -config config.yaml -sync-models
 ```
+
+## 贡献者
+
+- [**leookun**](https://github.com/leookun) — 原项目
+  [devin-2api](https://github.com/leookun/devin-2api) 作者：协议逆向、字段语义、原始适配器与编解码。
+- [**Green-hats**](https://github.com/Green-hats) — lite 维护者：裁剪、手写 wire/Connect、
+  模型目录/快照/manifest、测试与文档。
+
+详见 [CONTRIBUTORS.md](CONTRIBUTORS.md)。
 
 ## 来源
 

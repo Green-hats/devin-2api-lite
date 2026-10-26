@@ -12,7 +12,7 @@
 
 <b>English</b> | <a href="README.zh-CN.md">中文</a>
 
-[Quick start](#quick-start) · [Endpoints](#endpoints) · [Configuration](#configuration) · [Credits](#credits)
+[Quick start](#quick-start) · [Endpoints](#endpoints) · [Configuration](#configuration) · [Contributors](#contributors) · [Credits](#credits)
 
 </div>
 
@@ -244,6 +244,16 @@ go run ./cmd/fieldcheck /path/to/all-protos.proto
 # refresh the model catalog snapshot on demand
 go run ./cmd/devin-2api -config config.yaml -sync-models
 ```
+
+## Contributors
+
+- [**leookun**](https://github.com/leookun) — original author of
+  [devin-2api](https://github.com/leookun/devin-2api): protocol reverse engineering, field
+  semantics, original adapter and codecs.
+- [**Green-hats**](https://github.com/Green-hats) — lite maintainer: trimming, hand-written
+  wire/Connect, model catalog/snapshot/manifest, tests and docs.
+
+See [CONTRIBUTORS.md](CONTRIBUTORS.md) for details.
 
 ## Credits
 
