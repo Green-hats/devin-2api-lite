@@ -202,3 +202,14 @@ func TestDecodeRequestIgnoresUnsupportedExtensions(t *testing.T) {
 		t.Fatalf("tools = %#v", request.Context.Tools)
 	}
 }
+
+// TestDecodeReasoningEffort 验证 reasoning.effort 会进入中间请求。
+func TestDecodeReasoningEffort(t *testing.T) {
+	request, err := DecodeRequest([]byte(`{"model":"swe-2","reasoning":{"effort":"medium"},"input":"hi"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if request.Context.ReasoningEffort != "medium" {
+		t.Fatalf("ReasoningEffort = %q, want medium", request.Context.ReasoningEffort)
+	}
+}

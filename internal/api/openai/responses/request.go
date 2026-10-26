@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/Green-hats/devin-2api-lite/internal/api/common"
@@ -32,6 +33,14 @@ type Request struct {
 	Temperature *float64 `json:"temperature,omitempty"`
 	// PreviousResponseID 是上游 Responses 会话关联标识。
 	PreviousResponseID string `json:"previous_response_id,omitempty"`
+	// Reasoning 是 Responses 的推理控制对象。
+	Reasoning *Reasoning `json:"reasoning,omitempty"`
+}
+
+// Reasoning 是 Responses 推理控制字段中本适配器支持的子集。
+type Reasoning struct {
+	// Effort 是推理强度，例如 low/medium/high。
+	Effort string `json:"effort,omitempty"`
 }
 
 // Tool 是 OpenAI Responses function 工具定义。
@@ -77,7 +86,11 @@ func DecodeRequest(data []byte) (AdaptedRequest, error) {
 		return AdaptedRequest{}, errors.New("responses request model is required")
 	}
 
-	context := llm.RequestMessages{Model: request.Model, SystemPrompt: request.Instructions}
+	reasoningEffort := ""
+	if request.Reasoning != nil {
+		reasoningEffort = strings.TrimSpace(request.Reasoning.Effort)
+	}
+	context := llm.RequestMessages{Model: request.Model, SystemPrompt: request.Instructions, ReasoningEffort: reasoningEffort}
 	if err := appendInputMessages(&context, request.Input); err != nil {
 		return AdaptedRequest{}, err
 	}

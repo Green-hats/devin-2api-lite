@@ -185,3 +185,23 @@ func TestLoadRejectsInvalidBoolEnvironment(t *testing.T) {
 		t.Fatalf("error = %v", err)
 	}
 }
+
+// TestValidateNormalizesReasoningTiers 验证档位键统一小写且空值被拒绝。
+func TestValidateNormalizesReasoningTiers(t *testing.T) {
+	var loaded Config
+	loaded.Devin.ReasoningTiers = map[string]map[string]string{
+		" swe-2 ": {"HIGH": " swe-2-high "},
+	}
+	if err := loaded.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if got := loaded.Devin.ReasoningTiers["swe-2"]["high"]; got != "swe-2-high" {
+		t.Fatalf("normalized tier = %q", got)
+	}
+
+	var invalid Config
+	invalid.Devin.ReasoningTiers = map[string]map[string]string{"swe-2": {"high": ""}}
+	if err := invalid.Validate(); err == nil {
+		t.Fatal("empty target should be rejected")
+	}
+}

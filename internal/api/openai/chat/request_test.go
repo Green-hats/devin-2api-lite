@@ -89,3 +89,28 @@ func TestDecodeRequestAcceptsFunctionCallArguments(t *testing.T) {
 		t.Fatalf("tool call arguments = %q", call.Arguments)
 	}
 }
+
+// TestDecodeReasoningEffort 验证 reasoning_effort 与 thinking 会进入中间请求。
+func TestDecodeReasoningEffort(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want string
+	}{
+		{"effort", `{"model":"swe-2","reasoning_effort":"high","messages":[{"role":"user","content":"hi"}]}`, "high"},
+		{"thinking", `{"model":"swe-2","thinking":true,"messages":[{"role":"user","content":"hi"}]}`, "high"},
+		{"thinking-object", `{"model":"swe-2","thinking":{"type":"enabled","budget_tokens":1024},"messages":[{"role":"user","content":"hi"}]}`, "high"},
+		{"absent", `{"model":"swe-2","messages":[{"role":"user","content":"hi"}]}`, ""},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			request, err := DecodeRequest([]byte(testCase.body))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if request.Context.ReasoningEffort != testCase.want {
+				t.Fatalf("ReasoningEffort = %q, want %q", request.Context.ReasoningEffort, testCase.want)
+			}
+		})
+	}
+}

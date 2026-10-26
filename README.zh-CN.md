@@ -145,8 +145,25 @@ OpenAI SDK、Codex CLI、IDE 插件等 OpenAI 兼容客户端，把 Base URL 指
 | `devin.proxy` | — | 可选 HTTP/HTTPS 代理 |
 | `devin.force_http1` | `true` | 规避上游 HTTP/2 多路复用瓶颈 |
 | `devin.stream_idle_timeout` | `5m` | 上游超时无帧则返回 504；`0` 表示不限制 |
+| `devin.reasoning_tiers` | — | 把「基础模型 + reasoning_effort」映射为实际 uid，如 `swe-2` + `high` → `swe-2-high` |
 | `debug.enabled` | `false` | 在 `logs/` 下记录每请求日志 |
 | `auth.api_key` | — | 为空则不校验 |
+
+### 推理档位映射
+
+Devin 的部分模型把推理档位写在 uid 里（`swe-2-medium`、`swe-2-high`）。
+配置 `devin.reasoning_tiers` 后，客户端可以传基础 id 加档位：
+
+```bash
+curl -s localhost:18089/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"swe-2","reasoning_effort":"high","messages":[{"role":"user","content":"hi"}]}'
+# 实际发给上游的 chat_model_uid 是 swe-2-high
+```
+
+Responses 用 `reasoning.effort`，Chat 也接受 `thinking: true` 作为 `high` 的简写。
+只有配置过的映射才会生效，网关不会自行拼后缀；客户端传显式档位（如 `swe-2-high`）时保持原样。
+基础 id（如 `swe-2`）是虚拟名称，可能不在 `/v1/models` 中，需要客户端直接填写。
 
 未知 YAML 字段会被拒绝。所有字段都可用环境变量覆盖（`SERVER_LISTEN`、`DEVIN_TOKEN`、
 `DEVIN_STREAM_IDLE_TIMEOUT`、`AUTH_API_KEY` 等），见 `config.example.yaml`。
@@ -161,7 +178,7 @@ OpenAI SDK、Codex CLI、IDE 插件等 OpenAI 兼容客户端，把 Base URL 指
 | 上游绑定 | protoc 生成 Connect 绑定 | 手写 wire + Connect |
 | 构建前置 | `task generate` | 无 |
 | 依赖 | 7 个 | 1 个（`yaml.v3`） |
-| 生产代码 | 8,851 行 | 6,432 行 |
+| 生产代码 | 8,851 行 | 6,552 行 |
 
 分层边界没有变化；要加回 Anthropic 或 WebSocket，只需补一个编解码包。
 

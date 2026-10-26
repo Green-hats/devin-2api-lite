@@ -40,6 +40,9 @@ type RequestMessages struct {
 	Messages []Message
 	// Tools 是本次请求允许模型调用的工具定义。
 	Tools []ToolDefinition
+	// ReasoningEffort 是调用方期望的推理强度（如 low/medium/high）。
+	// 供应商适配器决定如何映射；为空表示调用方未指定。
+	ReasoningEffort string
 }
 
 // Message 是用户、助手或工具结果消息的统一接口。

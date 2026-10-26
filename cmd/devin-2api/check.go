@@ -44,12 +44,13 @@ func newProviderAdapter(serviceConfig config.Config) (adapter.Adapter, error) {
 		return adapter.Unavailable{Reason: "devin.token is not configured"}, nil
 	}
 	return devin.New(devin.Config{
-		BaseURL:     serviceConfig.Devin.BaseURL,
-		Token:       serviceConfig.Devin.Token,
-		Model:       serviceConfig.Devin.Model,
-		Proxy:       serviceConfig.Devin.Proxy,
-		ForceHTTP1:  serviceConfig.Devin.ForceHTTP1 != nil && *serviceConfig.Devin.ForceHTTP1,
-		IdleTimeout: serviceConfig.Devin.IdleTimeout,
+		BaseURL:        serviceConfig.Devin.BaseURL,
+		Token:          serviceConfig.Devin.Token,
+		Model:          serviceConfig.Devin.Model,
+		Proxy:          serviceConfig.Devin.Proxy,
+		ForceHTTP1:     serviceConfig.Devin.ForceHTTP1 != nil && *serviceConfig.Devin.ForceHTTP1,
+		IdleTimeout:    serviceConfig.Devin.IdleTimeout,
+		ReasoningTiers: serviceConfig.Devin.ReasoningTiers,
 	})
 }
 

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/Green-hats/devin-2api-lite/internal/api/common"
@@ -26,6 +27,8 @@ type Request struct {
 	TopP                *float64        `json:"top_p,omitempty"`
 	Stop                json.RawMessage `json:"stop,omitempty"`
 	ResponseFormat      json.RawMessage `json:"response_format,omitempty"`
+	ReasoningEffort     string          `json:"reasoning_effort,omitempty"`
+	Thinking            json.RawMessage `json:"thinking,omitempty"`
 }
 
 // Message 是 Chat Completions 消息条目。
@@ -96,7 +99,7 @@ func DecodeRequest(data []byte) (AdaptedRequest, error) {
 		return AdaptedRequest{}, errors.New("chat request messages are required")
 	}
 
-	context := llm.RequestMessages{Model: request.Model}
+	context := llm.RequestMessages{Model: request.Model, ReasoningEffort: chatReasoningEffort(request)}
 	if err := appendMessages(&context, request.Messages); err != nil {
 		return AdaptedRequest{}, err
 	}
@@ -131,6 +134,45 @@ func DecodeRequest(data []byte) (AdaptedRequest, error) {
 			Temperature:     request.Temperature,
 		},
 	}, nil
+}
+
+// chatReasoningEffort 把 reasoning_effort 或 thinking 归一为推理档位。
+// thinking 兼容 bool、字符串和 Anthropic 风格的 {"type":"enabled"} 对象。
+func chatReasoningEffort(request Request) string {
+	if effort := strings.TrimSpace(request.ReasoningEffort); effort != "" {
+		return effort
+	}
+	if len(request.Thinking) == 0 {
+		return ""
+	}
+	var enabled bool
+	if json.Unmarshal(request.Thinking, &enabled) == nil {
+		if enabled {
+			return "high"
+		}
+		return ""
+	}
+	var text string
+	if json.Unmarshal(request.Thinking, &text) == nil {
+		switch strings.ToLower(strings.TrimSpace(text)) {
+		case "enabled", "on", "true":
+			return "high"
+		case "disabled", "off", "false", "":
+			return ""
+		default:
+			return strings.TrimSpace(text)
+		}
+	}
+	var object struct {
+		Type         string `json:"type"`
+		BudgetTokens int    `json:"budget_tokens"`
+	}
+	if json.Unmarshal(request.Thinking, &object) == nil {
+		if object.Type == "enabled" || object.BudgetTokens > 0 {
+			return "high"
+		}
+	}
+	return ""
 }
 
 func appendMessages(context *llm.RequestMessages, messages []Message) error {

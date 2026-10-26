@@ -83,6 +83,25 @@ func modelLikelySupportsImages(model string) bool {
 	return true
 }
 
+// resolveReasoningModel 在配置了档位表时把基础模型改写成实际 uid。
+// 未配置的模型保持原样；配置了基础模型但缺少该档位时返回 400 类错误。
+func resolveReasoningModel(model, effort string, tiers map[string]map[string]string) (string, error) {
+	model = strings.TrimSpace(model)
+	effort = strings.ToLower(strings.TrimSpace(effort))
+	if effort == "" || len(tiers) == 0 {
+		return model, nil
+	}
+	byEffort, ok := tiers[model]
+	if !ok {
+		return model, nil
+	}
+	target, ok := byEffort[effort]
+	if !ok {
+		return "", fmt.Errorf("invalid_argument: model %q has no reasoning tier for effort %q", model, effort)
+	}
+	return target, nil
+}
+
 // ListModels 通过 GetCascadeModelConfigs 拉取可用模型目录，结果带 TTL 缓存。
 func (a *Adapter) ListModels(ctx context.Context) ([]adapter.ModelInfo, error) {
 	a.modelsMu.RLock()

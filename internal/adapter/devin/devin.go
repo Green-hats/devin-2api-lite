@@ -43,6 +43,8 @@ type Config struct {
 	ForceHTTP1 bool
 	// IdleTimeout 是上游流两次帧之间的最长等待时间；0 表示不限制。
 	IdleTimeout time.Duration
+	// ReasoningTiers 把基础模型 + 推理档位映射到实际 uid。
+	ReasoningTiers map[string]map[string]string
 }
 
 // Adapter 调用 Devin 的 ApiServerService/GetChatMessage。
@@ -102,6 +104,10 @@ func (adapter *Adapter) Stream(ctx context.Context, request llm.RequestMessages)
 	model := strings.TrimSpace(request.Model)
 	if model == "" {
 		model = adapter.config.Model
+	}
+	model, err := resolveReasoningModel(model, request.ReasoningEffort, adapter.config.ReasoningTiers)
+	if err != nil {
+		return nil, err
 	}
 	if err := adapter.validateImagesForModel(request, model); err != nil {
 		return nil, err

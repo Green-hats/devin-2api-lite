@@ -2,6 +2,7 @@
 package app
 
 import (
+	"bytes"
 	"encoding/binary"
 	"encoding/json"
 	"io"
@@ -302,5 +303,47 @@ func TestUpstreamIdleTimeoutReturns504(t *testing.T) {
 	}
 	if elapsed := time.Since(started); elapsed > 3*time.Second {
 		t.Fatalf("idle timeout took %s", elapsed)
+	}
+}
+
+// TestReasoningEffortRewritesModel 验证 reasoning_effort 会在适配器里改写上游 model uid。
+func TestReasoningEffortRewritesModel(t *testing.T) {
+	var received []byte
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		received = readConnectPayload(t, request)
+		writer.Header().Set("Content-Type", "application/connect+proto")
+		writer.WriteHeader(http.StatusOK)
+		_, _ = writer.Write(connectFrame(0, pbString(3, "ok")))
+		_, _ = writer.Write(connectFrame(0x02, []byte(`{"metadata":{}}`)))
+	}))
+	defer upstream.Close()
+
+	provider, err := devin.New(devin.Config{
+		BaseURL:    upstream.URL,
+		Token:      "devin-session-token$test",
+		Model:      "swe-2",
+		ForceHTTP1: true,
+		ReasoningTiers: map[string]map[string]string{
+			"swe-2": {"high": "swe-2-high"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	gateway := httptest.NewServer(New(provider, config.ServerConfig{Listen: ":0"}, nil).Router())
+	defer gateway.Close()
+
+	response, err := http.Post(gateway.URL+"/v1/chat/completions", "application/json",
+		strings.NewReader(`{"model":"swe-2","reasoning_effort":"high","messages":[{"role":"user","content":"hi"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		raw, _ := io.ReadAll(response.Body)
+		t.Fatalf("status = %d: %s", response.StatusCode, raw)
+	}
+	if !bytes.Contains(received, []byte("swe-2-high")) {
+		t.Fatalf("upstream request does not contain rewritten model: %x", received)
 	}
 }

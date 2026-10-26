@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -54,6 +55,9 @@ type DevinConfig struct {
 	StreamIdleTimeout string `yaml:"stream_idle_timeout"`
 	// IdleTimeout 是 StreamIdleTimeout 解析后的值，由 Validate 填充。
 	IdleTimeout time.Duration `yaml:"-"`
+	// ReasoningTiers 把「基础模型 + 推理档位」映射成实际 Devin uid。
+	// 例如 swe-2 + high -> swe-2-high。
+	ReasoningTiers map[string]map[string]string `yaml:"reasoning_tiers"`
 }
 
 // DebugConfig 保存请求级调试日志配置。
@@ -118,6 +122,38 @@ func (config *Config) Validate() error {
 	if err := validateBaseURL(config.Devin.BaseURL); err != nil {
 		return err
 	}
+	if err := config.normalizeReasoningTiers(); err != nil {
+		return err
+	}
+	return nil
+}
+
+// normalizeReasoningTiers 统一 effort 大小写并拒绝空模型/空档位。
+func (config *Config) normalizeReasoningTiers() error {
+	if len(config.Devin.ReasoningTiers) == 0 {
+		return nil
+	}
+	normalized := make(map[string]map[string]string, len(config.Devin.ReasoningTiers))
+	for model, tiers := range config.Devin.ReasoningTiers {
+		model = strings.TrimSpace(model)
+		if model == "" {
+			return errors.New("devin.reasoning_tiers contains an empty model")
+		}
+		if len(tiers) == 0 {
+			return fmt.Errorf("devin.reasoning_tiers[%s] is empty", model)
+		}
+		normalizedTiers := make(map[string]string, len(tiers))
+		for effort, target := range tiers {
+			effort = strings.ToLower(strings.TrimSpace(effort))
+			target = strings.TrimSpace(target)
+			if effort == "" || target == "" {
+				return fmt.Errorf("devin.reasoning_tiers[%s] contains an empty effort or target", model)
+			}
+			normalizedTiers[effort] = target
+		}
+		normalized[model] = normalizedTiers
+	}
+	config.Devin.ReasoningTiers = normalized
 	return nil
 }
 

@@ -598,3 +598,36 @@ func TestImageValidationUsesModelCatalog(t *testing.T) {
 		t.Fatal("text model should be rejected")
 	}
 }
+
+// TestResolveReasoningModel 验证基础模型 + 档位会被改写成实际 uid。
+func TestResolveReasoningModel(t *testing.T) {
+	tiers := map[string]map[string]string{
+		"swe-2": {"medium": "swe-2-medium", "high": "swe-2-high"},
+	}
+	cases := []struct {
+		name   string
+		model  string
+		effort string
+		want   string
+	}{
+		{"mapped", "swe-2", "high", "swe-2-high"},
+		{"case-insensitive", "swe-2", " HIGH ", "swe-2-high"},
+		{"explicit-tier", "swe-2-medium", "high", "swe-2-medium"},
+		{"no-effort", "swe-2", "", "swe-2"},
+		{"unconfigured-model", "glm-5-2", "high", "glm-5-2"},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			got, err := resolveReasoningModel(testCase.model, testCase.effort, tiers)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != testCase.want {
+				t.Fatalf("got %q, want %q", got, testCase.want)
+			}
+		})
+	}
+	if _, err := resolveReasoningModel("swe-2", "max", tiers); err == nil {
+		t.Fatal("missing tier should return an error")
+	}
+}

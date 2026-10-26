@@ -147,8 +147,26 @@ configured, 504 when the upstream stream is idle past `stream_idle_timeout`, 413
 | `devin.proxy` | — | Optional HTTP/HTTPS proxy |
 | `devin.force_http1` | `true` | Avoids the upstream's HTTP/2 multiplexing bottleneck |
 | `devin.stream_idle_timeout` | `5m` | Returns 504 if no upstream frame arrives in time; `0` disables |
+| `devin.reasoning_tiers` | — | Maps a base id + `reasoning_effort` to an actual uid, e.g. `swe-2` + `high` → `swe-2-high` |
 | `debug.enabled` | `false` | Writes per-request logs under `logs/` |
 | `auth.api_key` | — | Empty disables auth |
+
+### Reasoning tiers
+
+Some Devin models encode the reasoning level in the uid (`swe-2-medium`, `swe-2-high`).
+With `devin.reasoning_tiers`, clients can send the base id plus an effort:
+
+```bash
+curl -s localhost:18089/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"swe-2","reasoning_effort":"high","messages":[{"role":"user","content":"hi"}]}'
+# the upstream request uses chat_model_uid=swe-2-high
+```
+
+`reasoning.effort` works the same way for Responses; `thinking: true` is accepted as shorthand
+for `high` in Chat Completions. Only configured mappings apply — the gateway never invents
+suffixes, and an explicit tier id such as `swe-2-high` is left untouched. Base ids such as
+`swe-2` are virtual and may not appear in `/v1/models`; clients must send them explicitly.
 
 Unknown YAML fields are rejected. Every field can be overridden by an environment variable
 (`SERVER_LISTEN`, `DEVIN_TOKEN`, `DEVIN_STREAM_IDLE_TIMEOUT`, `AUTH_API_KEY`, ...); see `config.example.yaml`.
@@ -163,7 +181,7 @@ first failing stage. Failures are also logged to stderr with a request ID, even 
 | Upstream bindings | Generated Connect bindings | Hand-written wire + Connect |
 | Build step | `task generate` | None |
 | Dependencies | 7 | 1 (`yaml.v3`) |
-| Production LOC | 8,851 | 6,432 |
+| Production LOC | 8,851 | 6,552 |
 
 The layer boundaries are unchanged; adding Anthropic or WebSocket back means adding one
 codec package.

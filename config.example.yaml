@@ -18,6 +18,16 @@ devin:
   force_http1: true
   # 上游流两次帧之间的最长等待时间；超时返回 504。0 表示不限制。
   stream_idle_timeout: "5m"
+  # 推理档位映射：客户端传 model=swe-2 + reasoning_effort=high 时，
+  # 实际发给上游的模型是 swe-2-high。未配置的模型保持原样。
+  reasoning_tiers:
+    swe-2:
+      medium: swe-2-medium
+      high: swe-2-high
+      max: swe-2-max
+    glm-5-3:
+      low: glm-5-3-low
+      high: glm-5-3-high
 
 auth:
   # /v1/* 的访问密钥；留空则不校验。客户端可用 Authorization: Bearer 或 X-Api-Key。
