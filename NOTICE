@@ -19,9 +19,9 @@ Derived from the original project (copied or adapted, import paths changed):
   - internal/app/                         routing and request lifecycle (trimmed)
   - internal/config/, internal/debuglog/  configuration and debug logging
                                           (trimmed)
-  - README structure, docs, and the protocol knowledge recorded in
-    docs/upstream-protocol.md, which originates from the original project's
-    protobuf descriptor extraction work (cmd/protoextract).
+  - the protocol knowledge recorded in docs/upstream-protocol.md, which
+    originates from the original project's protobuf descriptor extraction
+    work (cmd/protoextract).
 
 New in this fork:
 
