@@ -1,0 +1,27 @@
+syntax = "proto2";
+
+package exa.api_server_pb;
+
+message GetChatMessageRequest {
+  optional string prompt = 2;
+
+  optional ExaCodeiumCommonPb_Metadata metadata = 1;
+}
+
+message ExaCodeiumCommonPb_Metadata {
+  optional string api_key = 3;
+
+  optional string f = 31;
+}
+
+message ExaCodeiumCommonPb_ModelOrAlias {
+  oneof choice {
+    string model_uid = 3;
+  }
+}
+
+enum ExaCodeiumCommonPb_StopReason {
+  ExaCodeiumCommonPb_StopReason_STOP_REASON_UNSPECIFIED = 0;
+
+  ExaCodeiumCommonPb_StopReason_STOP_REASON_ERROR = 13;
+}

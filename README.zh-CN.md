@@ -161,9 +161,9 @@ OpenAI SDK、Codex CLI、IDE 插件等 OpenAI 兼容客户端，把 Base URL 指
 | 上游绑定 | protoc 生成 Connect 绑定 | 手写 wire + Connect |
 | 构建前置 | `task generate` | 无 |
 | 依赖 | 7 个 | 1 个（`yaml.v3`） |
-| 生产代码 | 8,851 行 | 6,189 行 |
+| 生产代码 | 8,851 行 | 6,432 行 |
 
-`llm` 中间层与协议抽象没有变化；要加回 Anthropic 或 WebSocket，只需补一个编解码包。
+分层边界没有变化；要加回 Anthropic 或 WebSocket，只需补一个编解码包。
 
 ## 注意事项
 
@@ -185,6 +185,9 @@ gofmt -l .
 # 对手写协议解析器做模糊测试
 go test ./internal/adapter/devin -run=^$ -fuzz=FuzzDecodeChatResponse -fuzztime=10s
 go test ./internal/connect -run=^$ -fuzz=FuzzReadFrame -fuzztime=10s
+
+# 校验硬编码字段号是否与最新提取的 proto 一致
+go run ./cmd/fieldcheck /path/to/all-protos.proto
 ```
 
 ## 来源

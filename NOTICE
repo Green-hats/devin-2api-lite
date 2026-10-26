@@ -30,6 +30,7 @@ New in this fork:
   - internal/adapter/devin/types.go       minimal upstream message definitions
   - internal/app/app_upstream_test.go      fake-upstream end-to-end tests
   - internal/connect/connect_test.go       framing/error/gzip tests
+  - cmd/fieldcheck/                        upstream field-number guard
   - docs/architecture.png, docs/banner.png, README rewrite
 
 The upstream Devin/Windsurf protocol is proprietary and undocumented. This

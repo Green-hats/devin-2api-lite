@@ -184,11 +184,18 @@ task extract BINARY=/Applications/Devin.app/Contents/Resources/app/extensions/wi
 # 2. 对比字段
 diff <(grep '"name"' outputs/devin-proto/manifest.json | sort) \
      <(grep '"name"' /tmp/extract-test/manifest.json | sort)
+
+# 3. 用本仓库的 fieldcheck 校验硬编码字段号
+cd devin-2api-lite
+go run ./cmd/fieldcheck /path/to/outputs/devin-proto/all-protos.proto
 ```
 
-3. 修改 `internal/adapter/devin/types.go` 中对应的字段号或枚举；
-4. 跑 `go test ./internal/adapter/devin`——测试会锁定已实现的字段号，改错会直接失败；
-5. 如果新增了整条 RPC，再补 `internal/connect` 的调用与 `internal/app` 的路由。
+4. 修改 `internal/adapter/devin/types.go` 中对应的字段号或枚举；
+5. 跑 `go test ./internal/adapter/devin`——测试会锁定已实现的字段号，改错会直接失败；
+6. 如果新增了整条 RPC，再补 `internal/connect` 的调用与 `internal/app` 的路由。
+
+`cmd/fieldcheck` 内置了本仓库依赖的字段与枚举清单；字段号或枚举值变化时会列出具体差异，
+退出码为 1。上游只新增字段时它仍会通过。
 
 上游**新增**字段不需要改代码：解码器对未知字段一律跳过。只有字段号变更、语义变化或新增
 必需字段时才需要适配。
@@ -199,4 +206,5 @@ diff <(grep '"name"' outputs/devin-proto/manifest.json | sort) \
   （request/response 的 protojson 文本），可直接对照字段语义；
 - 打开 `debug.enabled`，`03-devin-request.json` 与 `04-devin-response.jsonl` 分别是
   发往上游的请求投影与原始帧投影；
-- `internal/app/app_upstream_test.go` 用 httptest 假冒上游，改动帧格式后会立刻暴露问题。
+- `internal/app/app_upstream_test.go` 用 httptest 假冒上游，改动帧格式后会立刻暴露问题；
+- `go run ./cmd/fieldcheck <all-protos.proto>` 用来确认字段号没有漂移。
