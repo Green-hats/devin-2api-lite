@@ -10,7 +10,7 @@
 [![protoc](https://img.shields.io/badge/protoc-not%20required-4c78a8?style=flat-square)](#这是什么)
 [![Dependencies](https://img.shields.io/badge/dependencies-1-f2c55c?style=flat-square)](go.mod)
 
-<sub><a href="README.md">English</a> | <b>中文</b></sub>
+<a href="README.md">English</a> | <b>中文</b>
 
 [快速开始](#快速开始) · [接口](#接口) · [配置](#配置) · [来源](#来源)
 

@@ -10,7 +10,7 @@
 [![protoc](https://img.shields.io/badge/protoc-not%20required-4c78a8?style=flat-square)](#what-it-is)
 [![Dependencies](https://img.shields.io/badge/dependencies-1-f2c55c?style=flat-square)](go.mod)
 
-<sub><b>English</b> | <a href="README.zh-CN.md">中文</a></sub>
+<b>English</b> | <a href="README.zh-CN.md">中文</a>
 
 [Quick start](#quick-start) · [Endpoints](#endpoints) · [Configuration](#configuration) · [Credits](#credits)
 
