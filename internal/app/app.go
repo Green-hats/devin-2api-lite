@@ -10,6 +10,8 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/Green-hats/devin-2api-lite/internal/adapter"
@@ -70,6 +72,8 @@ func (application *App) SetAPIKey(apiKey string) {
 func (application *App) Router() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", application.health)
+	// 客户端排障：插件把它在渲染进程里的异常写到这里（仅本地调试用）。
+	mux.HandleFunc("POST /__clientlog", application.clientLog)
 	protected := func(pattern string, handler http.HandlerFunc) {
 		mux.Handle(pattern, application.observe(application.concurrencyMiddleware(application.apiKeyMiddleware(handler))))
 	}
@@ -104,6 +108,23 @@ func (application *App) HTTPServer() *http.Server {
 		IdleTimeout:       idleTimeout,
 		MaxHeaderBytes:    1 << 20,
 	}
+}
+
+// clientLog 把浏览器端上报的日志追加到临时文件，便于排查客户端插件问题。
+func (application *App) clientLog(writer http.ResponseWriter, request *http.Request) {
+	body, err := io.ReadAll(io.LimitReader(request.Body, 16<<10))
+	if err == nil && len(body) > 0 {
+		path := filepath.Join(os.TempDir(), "dsh-devin2api-client.log")
+		// macOS 的 TMPDIR 是每用户目录，日志位置随进程环境而定。
+		if file, openErr := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600); openErr == nil {
+			_, _ = file.Write(body)
+			if body[len(body)-1] != '\n' {
+				_, _ = file.Write([]byte("\n"))
+			}
+			_ = file.Close()
+		}
+	}
+	writer.WriteHeader(http.StatusNoContent)
 }
 
 func (application *App) health(writer http.ResponseWriter, _ *http.Request) {
