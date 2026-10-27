@@ -83,6 +83,14 @@ func (a *Adapter) Quota(ctx context.Context) (adapter.Quota, error) {
 	return sample, nil
 }
 
+// RefreshQuota 跳过缓存强制向上游取一次额度；供 GET /v1/quota?fresh=1 使用。
+func (a *Adapter) RefreshQuota(ctx context.Context) (adapter.Quota, error) {
+	a.quotaMu.Lock()
+	a.quotaExpiry = time.Time{}
+	a.quotaMu.Unlock()
+	return a.Quota(ctx)
+}
+
 // fetchQuota 调用上游并解析一次额度快照。
 func (a *Adapter) fetchQuota(ctx context.Context) (adapter.Quota, error) {
 	payload, err := a.unaryClient.Unary(ctx, procedureGetUserStatus, (&quotaRequest{

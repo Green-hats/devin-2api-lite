@@ -4,6 +4,7 @@
 package app
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -224,7 +225,7 @@ func (application *App) quota(writer http.ResponseWriter, request *http.Request)
 		writeJSONError(writer, http.StatusServiceUnavailable, "quota is not available")
 		return
 	}
-	quota, err := provider.Quota(request.Context())
+	quota, err := readQuota(request.Context(), provider, request.URL.Query().Get("fresh") == "1")
 	if err != nil {
 		status := mapProviderErrorStatus(err)
 		application.logFailure(request.Context(), "provider_quota", status, err)
@@ -236,4 +237,19 @@ func (application *App) quota(writer http.ResponseWriter, request *http.Request)
 	}
 	writer.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(writer).Encode(quota)
+}
+
+// quotaRefresher 是可选能力：跳过缓存强制向上游取一次额度。
+type quotaRefresher interface {
+	RefreshQuota(context.Context) (adapter.Quota, error)
+}
+
+// readQuota 读取额度；fresh 为真时跳过缓存（适配器不支持则退回缓存读取）。
+func readQuota(ctx context.Context, provider adapter.QuotaProvider, fresh bool) (adapter.Quota, error) {
+	if fresh {
+		if refresher, ok := provider.(quotaRefresher); ok {
+			return refresher.RefreshQuota(ctx)
+		}
+	}
+	return provider.Quota(ctx)
 }
