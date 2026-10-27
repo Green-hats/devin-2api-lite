@@ -75,6 +75,7 @@ func (application *App) Router() http.Handler {
 	protected("GET /v1/models", application.listModels)
 	protected("GET /v1/models/{model}", application.getModel)
 	protected("GET /v1/model-manifest", application.modelManifest)
+	protected("GET /v1/quota", application.quota)
 	protected("POST /v1/responses", application.createResponses)
 	protected("POST /v1/chat/completions", application.createChatCompletions)
 	return mux
@@ -203,4 +204,25 @@ func (application *App) modelManifest(writer http.ResponseWriter, _ *http.Reques
 	}
 	writer.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(writer).Encode(manifest)
+}
+
+// quota 返回账户额度快照；适配器不支持额度时返回 503。
+func (application *App) quota(writer http.ResponseWriter, request *http.Request) {
+	provider, ok := application.adapter.(adapter.QuotaProvider)
+	if !ok {
+		writeJSONError(writer, http.StatusServiceUnavailable, "quota is not available")
+		return
+	}
+	quota, err := provider.Quota(request.Context())
+	if err != nil {
+		status := mapProviderErrorStatus(err)
+		application.logFailure(request.Context(), "provider_quota", status, err)
+		writeJSONError(writer, status, err.Error())
+		return
+	}
+	if quota.Stale {
+		writer.Header().Set("X-Quota-Stale", "true")
+	}
+	writer.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(writer).Encode(quota)
 }

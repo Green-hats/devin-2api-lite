@@ -1,6 +1,6 @@
 # 上游协议速查
 
-lite 版不再携带上游 descriptor，只实现两个 RPC 实际用到的字段。本文件记录这些字段号、
+lite 版不再携带上游 descriptor，只实现三个 RPC 实际用到的字段。本文件记录这些字段号、
 枚举值和 Connect 帧格式，升级上游时按最后一节操作。
 
 字段来源：原仓库 `outputs/devin-proto/all-protos.proto`（从 Devin 语言服务器二进制提取的
@@ -12,6 +12,7 @@ lite 版不再携带上游 descriptor，只实现两个 RPC 实际用到的字�
 | --- | --- | --- |
 | `GetChatMessage` | `/exa.api_server_pb.ApiServerService/GetChatMessage` | 服务端流 |
 | `GetCascadeModelConfigs` | `/exa.api_server_pb.ApiServerService/GetCascadeModelConfigs` | 一元 |
+| `GetUserStatus` | `/exa.seat_management_pb.SeatManagementService/GetUserStatus` | 一元 |
 
 ## 请求头
 
@@ -149,6 +150,24 @@ token 形如 `devin-session-token$...`，直接拼成 `Basic <token>-<token>`（
 `ModelFamilyMetadata` 里的 `Reasoning Effort` / `Effort` / `Thinking` entry 用来生成
 `families` 档位建议；`Fast Mode` entry 用来排除 lightning 变体。这些建议只写入
 manifest，不会自动改变请求行为。
+
+## 账户额度
+
+`GET /v1/quota` 调用 `SeatManagementService/GetUserStatus`（一元，`application/proto`）。
+请求体只有 `1 metadata`；响应约 130 KiB，额度位于 `user_status` 下的 `plan_status`，
+其余字段本适配器不读取。
+
+| 消息 | 字段 |
+| --- | --- |
+| `GetUserStatusRequest` | 1 `metadata` |
+| `GetUserStatusResponse` | 1 `user_status` |
+| `UserStatus` | 13 `plan_status` |
+| `PlanStatus` | 1 `plan_info`、14 `daily_quota_remaining_percent`、15 `weekly_quota_remaining_percent`、17 `daily_quota_reset_at_unix`、18 `weekly_quota_reset_at_unix` |
+| `PlanInfo` | 2 套餐展示名（例如 `Pro`） |
+
+百分比是 0-100 的整数；超出该范围的值视为上游哨兵，按“未提供”返回 `null`。额度在进程内
+缓存 5 分钟；刷新失败时返回上一次成功快照，响应头带 `X-Quota-Stale: true`，并在 30 秒后
+重试上游。
 
 ## 枚举
 

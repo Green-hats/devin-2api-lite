@@ -31,3 +31,8 @@ func (unavailable Unavailable) Stream(context.Context, llm.RequestMessages) (llm
 func (unavailable Unavailable) ListModels(context.Context) ([]ModelInfo, error) {
 	return nil, unavailable.err()
 }
+
+// Quota 返回未配置供应商适配器的错误。
+func (unavailable Unavailable) Quota(context.Context) (Quota, error) {
+	return Quota{}, unavailable.err()
+}

@@ -85,10 +85,19 @@ type Adapter struct {
 	// imagesMu 保护从模型目录学到的图片能力，避免与硬编码名单互相矛盾。
 	imagesMu     sync.RWMutex
 	imageSupport map[string]bool
+	// quotaMu 串行化额度查询，同时把并发请求合并成一次上游调用。
+	quotaMu sync.Mutex
+	// quotaCached 是最近一次成功取得的额度快照；nil 表示尚未取得。
+	quotaCached *adapter.Quota
+	// quotaExpiry 是缓存失效时间。
+	quotaExpiry time.Time
+	// quotaStale 表示最近一次刷新失败，当前缓存是上一次成功快照。
+	quotaStale bool
 }
 
 var _ adapter.Adapter = (*Adapter)(nil)
 var _ adapter.ManifestProvider = (*Adapter)(nil)
+var _ adapter.QuotaProvider = (*Adapter)(nil)
 
 // New 创建 Devin adapter。
 func New(config Config) (*Adapter, error) {

@@ -78,6 +78,30 @@ type ManifestProvider interface {
 	ModelManifest() Manifest
 }
 
+// Quota 是一次上游账户额度快照；百分比为 nil 表示上游未提供该字段。
+type Quota struct {
+	// Plan 是账户套餐展示名，例如 Pro；未知时为空。
+	Plan string `json:"plan,omitempty"`
+	// DailyRemainingPercent 是当日额度剩余百分比（0-100）。
+	DailyRemainingPercent *int64 `json:"daily_remaining_percent"`
+	// WeeklyRemainingPercent 是本周额度剩余百分比（0-100）。
+	WeeklyRemainingPercent *int64 `json:"weekly_remaining_percent"`
+	// DailyResetAt 是当日额度重置的 Unix 秒时间戳；0 表示未知。
+	DailyResetAt int64 `json:"daily_reset_at"`
+	// WeeklyResetAt 是本周额度重置的 Unix 秒时间戳；0 表示未知。
+	WeeklyResetAt int64 `json:"weekly_reset_at"`
+	// SampledAt 是本地取得该快照的 Unix 秒时间戳。
+	SampledAt int64 `json:"sampled_at"`
+	// Stale 表示上游刷新失败，本次返回的是上一次成功快照。
+	Stale bool `json:"stale"`
+}
+
+// QuotaProvider 是可选能力：适配器可提供账户额度快照。
+type QuotaProvider interface {
+	// Quota 返回当前账户额度；实现应缓存，避免每次调用都请求上游。
+	Quota(context.Context) (Quota, error)
+}
+
 // Adapter 将供应商无关的请求上下文转换为具体供应商调用，并返回有序响应流。
 type Adapter interface {
 	// Stream 开始一次或多次助手响应的流式生成。

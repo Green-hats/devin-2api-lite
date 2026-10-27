@@ -37,6 +37,7 @@ OpenAI client ──HTTP/SSE──► devin-2api lite ──protobuf/Connect─�
 
 - **Two protocols** — Chat Completions and Responses, streaming or buffered.
 - **Model catalog** — `/v1/models` with a 5-minute cache and `supports_images`.
+- **Quota snapshot** — `/v1/quota` reads the upstream plan status with a 5-minute cache.
 - **Tool-aware** — strips schema annotations and moves descriptions into the system prompt.
 - **Current-turn images** — base64 data URLs; rejected locally for non-vision models.
 - **No protoc** — 63 upstream descriptors become a ~250-line wire codec; the only dependency is `yaml.v3`.
@@ -131,6 +132,7 @@ Any OpenAI-compatible client (OpenAI SDK, Codex CLI, IDE plugins) can point its 
 | `/v1/models` | GET | — | Catalog projection; see `catalog.model_mode` |
 | `/v1/models/{model}` | GET | — | Single model |
 | `/v1/model-manifest` | GET | — | Versioned catalog manifest (schema, families, hash, stale) |
+| `/v1/quota` | GET | — | Plan, daily/weekly remaining percentage, reset times |
 | `/healthz` | GET | — | No auth, no concurrency limit |
 
 Request bodies are capped at 32 MiB; unknown fields are ignored. Status codes: 503 when no token is

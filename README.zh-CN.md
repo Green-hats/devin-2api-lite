@@ -36,6 +36,7 @@ OpenAI 客户端 ──HTTP/SSE──► devin-2api lite ──protobuf/Connect�
 
 - **双协议** —— Chat Completions 与 Responses，流式或非流式。
 - **模型目录** —— `/v1/models`，5 分钟缓存，附带 `supports_images`。
+- **账户额度** —— `/v1/quota`，5 分钟缓存，上游失败时回退上次快照并标记 `stale`。
 - **工具调用** —— 剥离 Schema 注解，把工具说明注入 system prompt。
 - **当前轮图片** —— base64 data URL；无视觉能力的模型在本地直接拒绝。
 - **无 protoc** —— 63 个上游 descriptor 收敛为约 250 行 wire codec；唯一依赖 `yaml.v3`。
@@ -129,6 +130,7 @@ OpenAI SDK、Codex CLI、IDE 插件等 OpenAI 兼容客户端，把 Base URL 指
 | `/v1/models` | GET | — | 模型目录投影，见 `catalog.model_mode` |
 | `/v1/models/{model}` | GET | — | 单个模型 |
 | `/v1/model-manifest` | GET | — | 版本化模型目录（schema、families、hash、stale） |
+| `/v1/quota` | GET | — | 账户额度：套餐、日/周剩余百分比、重置时间 |
 | `/healthz` | GET | — | 不鉴权、不占并发 |
 
 请求体上限 32 MiB；未知字段会被忽略。状态码：未配置 token 返回 503，上游流超过
