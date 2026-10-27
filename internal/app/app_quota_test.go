@@ -51,6 +51,9 @@ func TestQuotaEndpointReturnsSnapshot(t *testing.T) {
 	if got := response.Header().Get("Content-Type"); got != "application/json" {
 		t.Fatalf("Content-Type = %q", got)
 	}
+	if got := response.Header().Get("Access-Control-Allow-Origin"); got != "*" {
+		t.Fatalf("Access-Control-Allow-Origin = %q", got)
+	}
 	var parsed map[string]any
 	if err := json.Unmarshal(response.Body.Bytes(), &parsed); err != nil {
 		t.Fatal(err)

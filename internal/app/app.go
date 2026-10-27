@@ -223,6 +223,8 @@ func (application *App) quota(writer http.ResponseWriter, request *http.Request)
 	if quota.Stale {
 		writer.Header().Set("X-Quota-Stale", "true")
 	}
+	// 桌面端插件在浏览器里直接读取额度，这里只对额度响应开放跨源读取。
+	writer.Header().Set("Access-Control-Allow-Origin", "*")
 	writer.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(writer).Encode(quota)
 }
