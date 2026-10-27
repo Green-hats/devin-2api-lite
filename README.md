@@ -123,6 +123,20 @@ curl -N http://localhost:18089/v1/chat/completions \
 
 Any OpenAI-compatible client (OpenAI SDK, Codex CLI, IDE plugins) can point its Base URL here.
 
+### DeepSeek Harness
+
+[**dsh-devin2api**](https://github.com/Green-hats/dsh-devin2api) registers this gateway as a model provider in
+DeepSeek Harness: dynamic catalog, streaming text/reasoning/tools, current-turn images, per-model visibility switches,
+and a daily/weekly quota pill. It reads `GET /v1/models` and `GET /v1/quota`, and posts diagnostics to
+`POST /__clientlog`.
+
+```bash
+dsh plugin --profile desktop add github:Green-hats/dsh-devin2api
+```
+
+See the [plugin README](https://github.com/Green-hats/dsh-devin2api/blob/main/README.md) for configuration and the
+CORS/credential rules its browser-side panel expects.
+
 ## Endpoints
 
 | Endpoint | Method | Streaming | Notes |

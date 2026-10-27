@@ -121,6 +121,18 @@ curl -N http://localhost:18089/v1/chat/completions \
 
 OpenAI SDK、Codex CLI、IDE 插件等 OpenAI 兼容客户端，把 Base URL 指向这里即可。
 
+### DeepSeek Harness
+
+[**dsh-devin2api**](https://github.com/Green-hats/dsh-devin2api) 把本网关注册成 DeepSeek Harness 的模型提供方：
+动态模型目录、流式文本/思考/工具调用、当前轮图片、每模型开关和日/周额度胶囊。它读取 `GET /v1/models` 与
+`GET /v1/quota`，并把排障日志写到 `POST /__clientlog`。
+
+```bash
+dsh plugin --profile desktop add github:Green-hats/dsh-devin2api
+```
+
+配置、以及浏览器面板对 CORS/凭据的要求，见[插件中文 README](https://github.com/Green-hats/dsh-devin2api/blob/main/README.zh-CN.md)。
+
 ## 接口
 
 | 接口 | 方法 | 流式 | 说明 |
