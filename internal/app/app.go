@@ -78,7 +78,18 @@ func (application *App) Router() http.Handler {
 	protected("GET /v1/quota", application.quota)
 	protected("POST /v1/responses", application.createResponses)
 	protected("POST /v1/chat/completions", application.createChatCompletions)
-	return mux
+	return application.readOnlyCORS(mux)
+}
+
+// readOnlyCORS 允许浏览器跨源读取只读 GET 端点：桌面端插件在渲染进程里直接读取
+// 额度、健康状态和模型列表，不经由 Host 代理。写入类端点不开放跨源。
+func (application *App) readOnlyCORS(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method == http.MethodGet || request.Method == http.MethodHead {
+			writer.Header().Set("Access-Control-Allow-Origin", "*")
+		}
+		next.ServeHTTP(writer, request)
+	})
 }
 
 // HTTPServer 创建带有应用路由和超时配置的 HTTP 服务。
@@ -223,8 +234,6 @@ func (application *App) quota(writer http.ResponseWriter, request *http.Request)
 	if quota.Stale {
 		writer.Header().Set("X-Quota-Stale", "true")
 	}
-	// 桌面端插件在浏览器里直接读取额度，这里只对额度响应开放跨源读取。
-	writer.Header().Set("Access-Control-Allow-Origin", "*")
 	writer.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(writer).Encode(quota)
 }
