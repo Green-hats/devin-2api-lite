@@ -37,11 +37,14 @@ type StreamEncoder struct {
 }
 
 type toolCallState struct {
-	index     int
-	id        string
-	name      string
-	arguments strings.Builder
-	done      bool
+	// index 是工具调用在 OpenAI tool_calls 数组中的序号。
+	index int
+	// contentIndex 是该工具调用对应的上游内容块下标，用于与中间事件对齐。
+	contentIndex int
+	id           string
+	name         string
+	arguments    strings.Builder
+	done         bool
 }
 
 // NewStreamEncoder 为一次 Chat Completions 流创建编码状态。
@@ -191,7 +194,12 @@ func (encoder *StreamEncoder) endThinking(event llm.ResponseEvent) []SSEEvent {
 }
 
 func (encoder *StreamEncoder) startToolCall(event llm.ResponseEvent) []SSEEvent {
-	state := &toolCallState{index: len(encoder.toolCalls), id: event.ToolCallID, name: event.ToolName}
+	state := &toolCallState{
+		index:        len(encoder.toolCalls),
+		contentIndex: event.ContentIndex,
+		id:           event.ToolCallID,
+		name:         event.ToolName,
+	}
 	encoder.toolCalls = append(encoder.toolCalls, state)
 	return []SSEEvent{encoder.chunk(map[string]any{
 		"choices": []any{map[string]any{
@@ -215,34 +223,53 @@ func (encoder *StreamEncoder) toolCallDelta(event llm.ResponseEvent) []SSEEvent 
 		return nil
 	}
 	state.arguments.WriteString(event.Delta)
-	return []SSEEvent{encoder.chunk(map[string]any{
+	return []SSEEvent{encoder.argumentsDelta(state, event.Delta)}
+}
+
+// argumentsDelta 构造只携带工具参数增量的 chat.completion.chunk。
+func (encoder *StreamEncoder) argumentsDelta(state *toolCallState, delta string) SSEEvent {
+	return encoder.chunk(map[string]any{
 		"choices": []any{map[string]any{
 			"index": 0,
 			"delta": map[string]any{
 				"tool_calls": []any{map[string]any{
 					"index":    state.index,
-					"function": map[string]any{"arguments": event.Delta},
+					"function": map[string]any{"arguments": delta},
 				}},
 			},
 			"finish_reason": nil,
 		}},
-	})}
+	})
 }
 
 func (encoder *StreamEncoder) endToolCall(event llm.ResponseEvent) []SSEEvent {
-	state := encoder.findToolByIndex(event.ContentIndex)
+	state := encoder.findToolByContentIndex(event.ContentIndex)
+	if state == nil && event.ToolCall != nil {
+		state = encoder.findTool(event.ToolCall.ID, event.ContentIndex)
+	}
 	if state == nil {
 		return nil
 	}
+	// 客户端把参数增量逐段拼成完整 JSON，因此只有在从未下发过增量时才补一段；
+	// 无参数工具（或上游只在结束帧给出参数）若不补，客户端会拿到空字符串。
+	hasDelta := state.arguments.Len() > 0
 	state.done = true
+	arguments := state.arguments.String()
 	if event.ToolCall != nil {
 		state.id = event.ToolCall.ID
 		state.name = event.ToolCall.Name
-		state.arguments.Reset()
-		state.arguments.WriteString(string(event.ToolCall.Arguments))
+		arguments = string(event.ToolCall.Arguments)
 	}
-	// OpenAI Chat Completions 流式工具调用不输出单独的结束 chunk；finish_reason 会标记结束。
-	return nil
+	state.arguments.Reset()
+	state.arguments.WriteString(arguments)
+	if hasDelta {
+		// 参数已通过增量下发，这里只校准内部状态，不再重复发送。
+		return nil
+	}
+	if arguments == "" {
+		arguments = "{}"
+	}
+	return []SSEEvent{encoder.argumentsDelta(state, arguments)}
 }
 
 func (encoder *StreamEncoder) finish(event llm.ResponseEvent) []SSEEvent {
@@ -295,21 +322,23 @@ func (encoder *StreamEncoder) failed(event llm.ResponseEvent) []SSEEvent {
 	return []SSEEvent{{Name: "", Data: data}}
 }
 
+// findTool 按工具调用 ID 查找；ID 缺失或不匹配时回退到上游内容块下标。
 func (encoder *StreamEncoder) findTool(id string, contentIndex int) *toolCallState {
-	for _, state := range encoder.toolCalls {
-		if state.id != "" && state.id == id {
-			return state
-		}
-		if state.index == contentIndex {
-			return state
+	if id != "" {
+		for _, state := range encoder.toolCalls {
+			if state.id == id {
+				return state
+			}
 		}
 	}
-	return nil
+	return encoder.findToolByContentIndex(contentIndex)
 }
 
-func (encoder *StreamEncoder) findToolByIndex(contentIndex int) *toolCallState {
+// findToolByContentIndex 按上游内容块下标查找工具调用状态。
+// 该下标与事件的 ContentIndex 同源，不能与 OpenAI 侧的 tool_calls 序号混用。
+func (encoder *StreamEncoder) findToolByContentIndex(contentIndex int) *toolCallState {
 	for _, state := range encoder.toolCalls {
-		if state.index == contentIndex {
+		if state.contentIndex == contentIndex {
 			return state
 		}
 	}

@@ -62,6 +62,62 @@ func TestStreamEncoderEmitsToolCalls(t *testing.T) {
 	if toolCall["function"].(map[string]any)["name"] != "lookup" {
 		t.Fatalf("tool call name = %v", toolCall["function"].(map[string]any)["name"])
 	}
+	// 已有增量时不得在结束事件上重复下发参数，否则客户端会拼出双份 JSON。
+	if got := toolArguments(t, encoded); got != `{"city":"Shanghai"}` {
+		t.Fatalf("streamed tool arguments = %q", got)
+	}
+}
+
+// TestStreamEncoderToolCallAfterText 验证文字块在前的工具调用仍能正确收尾。
+// 文字块占用 contentIndex 0 后，工具调用的 contentIndex 与 OpenAI 序号不再相同。
+func TestStreamEncoderToolCallAfterText(t *testing.T) {
+	encoder := NewStreamEncoder("gpt-test", false)
+	call := llm.ToolCall{ID: "call-1", Name: "lookup", Arguments: json.RawMessage(`{"city":"Shanghai"}`)}
+	content := []llm.Content{llm.TextContent{Text: "hi"}, call}
+	partial := &llm.AssistantMessage{Content: content, StopReason: llm.StopReasonPending}
+	final := &llm.AssistantMessage{Content: content, StopReason: llm.StopReasonToolUse}
+	events := []llm.ResponseEvent{
+		{Type: llm.ResponseEventStart, Partial: &llm.AssistantMessage{StopReason: llm.StopReasonPending}},
+		{Type: llm.ResponseEventTextStart, ContentIndex: 0, Partial: partial},
+		{Type: llm.ResponseEventTextDelta, ContentIndex: 0, Delta: "hi", Partial: partial},
+		{Type: llm.ResponseEventTextEnd, ContentIndex: 0, Content: "hi", Partial: partial},
+		{Type: llm.ResponseEventToolCallStart, ContentIndex: 1, ToolCallID: "call-1", ToolName: "lookup", Partial: partial},
+		{Type: llm.ResponseEventToolCallEnd, ContentIndex: 1, ToolCall: &call, Partial: partial},
+		{Type: llm.ResponseEventDone, Reason: llm.StopReasonToolUse, Message: final},
+	}
+	encoded := encodeStreamEvents(t, encoder, events)
+	if len(encoder.toolCalls) != 1 {
+		t.Fatalf("tool call count = %d, want 1", len(encoder.toolCalls))
+	}
+	state := encoder.toolCalls[0]
+	if !state.done {
+		t.Fatal("tool call end event did not match any tool call state")
+	}
+	if got := state.arguments.String(); got != `{"city":"Shanghai"}` {
+		t.Fatalf("tool arguments = %q, want final arguments", got)
+	}
+	// 上游没有给出参数增量，结束事件必须把最终参数补给客户端。
+	if got := toolArguments(t, encoded); got != `{"city":"Shanghai"}` {
+		t.Fatalf("streamed tool arguments = %q, want final arguments", got)
+	}
+}
+
+// TestStreamEncoderToolCallWithoutArguments 验证无参数工具调用下发 {} 而不是空字符串。
+func TestStreamEncoderToolCallWithoutArguments(t *testing.T) {
+	encoder := NewStreamEncoder("gpt-test", false)
+	call := llm.ToolCall{ID: "call-1", Name: "list_files", Arguments: json.RawMessage(`{}`)}
+	partial := &llm.AssistantMessage{Content: []llm.Content{call}, StopReason: llm.StopReasonPending}
+	final := &llm.AssistantMessage{Content: []llm.Content{call}, StopReason: llm.StopReasonToolUse}
+	events := []llm.ResponseEvent{
+		{Type: llm.ResponseEventStart, Partial: &llm.AssistantMessage{StopReason: llm.StopReasonPending}},
+		{Type: llm.ResponseEventToolCallStart, ContentIndex: 0, ToolCallID: "call-1", ToolName: "list_files", Partial: partial},
+		{Type: llm.ResponseEventToolCallEnd, ContentIndex: 0, ToolCall: &call, Partial: partial},
+		{Type: llm.ResponseEventDone, Reason: llm.StopReasonToolUse, Message: final},
+	}
+	encoded := encodeStreamEvents(t, encoder, events)
+	if got := toolArguments(t, encoded); got != `{}` {
+		t.Fatalf("streamed tool arguments = %q, want {}", got)
+	}
 }
 
 // TestEncodeResponseFinal 验证非流式最终 JSON 结构和用量缓存字段。
@@ -139,6 +195,39 @@ func decodeEventData(t *testing.T, event SSEEvent) map[string]any {
 		t.Fatal(err)
 	}
 	return data
+}
+
+// toolArguments 按 OpenAI 客户端的拼接规则还原工具参数。
+func toolArguments(t *testing.T, encoded []SSEEvent) string {
+	t.Helper()
+	var arguments strings.Builder
+	for _, event := range encoded {
+		if event.Name == "[DONE]" {
+			continue
+		}
+		choices, ok := decodeEventData(t, event)["choices"].([]any)
+		if !ok || len(choices) == 0 {
+			continue
+		}
+		delta, ok := choices[0].(map[string]any)["delta"].(map[string]any)
+		if !ok {
+			continue
+		}
+		calls, ok := delta["tool_calls"].([]any)
+		if !ok {
+			continue
+		}
+		for _, call := range calls {
+			function, ok := call.(map[string]any)["function"].(map[string]any)
+			if !ok {
+				continue
+			}
+			if text, ok := function["arguments"].(string); ok {
+				arguments.WriteString(text)
+			}
+		}
+	}
+	return arguments.String()
 }
 
 // TestStreamEncoderEmitsError 验证流式错误生成带 error 字段的 chat.completion.chunk。
